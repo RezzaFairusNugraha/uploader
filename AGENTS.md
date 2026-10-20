@@ -1,9 +1,42 @@
-<!-- BEGIN:nextjs-agent-rules -->
+Project: "Data Uploader", a small Next.js 15 (App Router, TypeScript, Tailwind) app run
+with Bun. Users from Sales and Marketing download a CSV template, fill it in, upload
+it, and the app VALIDATES the file and FORWARDS it unchanged to a Databricks Unity
+Catalog Volume using the Databricks Files API. A pipeline already inside Databricks
+processes the files.
 
-## This is NOT the Next.js you know
+Scope rules (strict):
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+- The app never edits, cleans, converts, or re-encodes an uploaded file. It validates
+  it and forwards the exact bytes.
+- No tables, no SQL, no SQL Warehouse. Only the Databricks Files API for Volumes.
+- Databricks settings (workspace URL, token, volume location) are configured in the
+  app's Settings page, never in .env, and never hardcoded in code or tests.
+- Secrets never leave the server. The browser only sees masked values.
+- Validation rules live in data (a config per template), not scattered in components.
+  Adding a new template must mean adding one config entry.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+Tooling rules:
 
-<!-- END:nextjs-agent-rules -->
+- Use Bun for everything: bun install, bun add, bun run dev, bun run build,
+  bun test. Do not create package-lock.json, yarn.lock, or pnpm-lock.yaml.
+- Keep dependencies minimal. Allowed beyond the Next.js starter: zod, papaparse
+  (and @types/papaparse), lucide-react. Ask before adding anything else.
+
+Code style (strict):
+
+- Never write code comments of any kind (no //, no /\* \*/, no JSDoc, no JSX comments).
+  Remove existing ones from any file you touch.
+- Natural, idiomatic code: clear names, small functions, early returns, no
+  boilerplate, no narrating console.log, no emoji, no TODO placeholders.
+- All user-facing text in Indonesian.
+
+Design rules: minimalist and modern. One fixed light theme. Background #fafafa, white
+surfaces, zinc text, hairline zinc-200 borders, a single indigo-600 accent. Font Geist
+or Inter. No gradients, no shadows beyond a faint one, no colored icon squares, no
+decorative animation. Generous whitespace, content centered at max-w-3xl.
+
+Workflow: work one step at a time. After each step, run bun run build, bun run lint,
+and bun test, then summarize what you built and how to run it. Then STOP and wait for
+my approval.
+
+Reply only with "Siap" and wait for Step 1.
