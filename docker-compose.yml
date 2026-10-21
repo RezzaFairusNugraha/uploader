@@ -1,0 +1,13 @@
+services:
+  uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - uploader_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  uploader_data:

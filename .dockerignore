@@ -1,4 +1,6 @@
-data/
 node_modules
 .next
 .git
+data
+.env*
+samples
