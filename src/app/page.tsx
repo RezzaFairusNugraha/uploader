@@ -13,6 +13,7 @@ import {
 import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import PageHeader from "@/components/PageHeader";
+import { notify } from "@/lib/notify";
 import type { MaskedSettings } from "@/lib/settings";
 import {
   getAllTemplates,
@@ -170,24 +171,23 @@ export default function UploadPage() {
     }
 
     setIsUploading(true);
-    setUploadError(null);
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("templateId", selectedTemplate.id);
 
-    try {
+    const uploadPromise = async () => {
       const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
 
-      if (!response.ok) {
-        setUploadError(data.error || "Gagal mengirim berkas ke Volume");
-        setIsUploading(false);
-        return;
+      if (!response.ok || !data || !data.success) {
+        const errorMsg =
+          (data && data.error) || "Gagal meneruskan berkas ke Volume";
+        throw new Error(errorMsg);
       }
 
       setUploadSuccess({
@@ -195,9 +195,38 @@ export default function UploadPage() {
         size: data.size,
         fileName: data.fileName,
       });
-      setIsUploading(false);
+
+      const subfolder = getDestinationSubfolder(
+        file.name,
+        settings?.subfolderCsv,
+        settings?.subfolderParquet
+      );
+
+      return {
+        subfolder,
+        fileName: data.fileName || file.name,
+      };
+    };
+
+    const task = uploadPromise();
+
+    notify.promise(task, {
+      loading: "Mengirim ke Databricks",
+      success: (res) => ({
+        title: `Terkirim ke ${res.subfolder}/`,
+        description: res.fileName,
+      }),
+      error: (err) => ({
+        title: "Unggahan ditolak",
+        description:
+          err instanceof Error ? err.message : "Gagal mengirim berkas ke Volume",
+      }),
+    });
+
+    try {
+      await task;
     } catch {
-      setUploadError("Koneksi terputus saat mengunggah berkas ke server");
+    } finally {
       setIsUploading(false);
     }
   };
@@ -232,7 +261,7 @@ export default function UploadPage() {
     <div>
       <PageHeader
         title="Unggah Berkas"
-        description="Pilih template, validasi integritas data, dan teruskan berkas ke Databricks Unity Catalog Volume."
+        description="Pilih template, validasi integritas data, dan kirim berkas ke Databricks Unity Catalog Volume."
       />
 
       {settingsLoaded && !isConfigured ? (
@@ -241,16 +270,16 @@ export default function UploadPage() {
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-900 leading-relaxed">
               <span className="font-semibold">
-                Koneksi Databricks belum dikonfigurasi.
+                Koneksi Databricks belum diatur.
               </span>{" "}
-              Lengkapi kredensial di halaman Pengaturan sebelum dapat mengirim berkas ke Volume.
+              Lengkapi kredensial di halaman Pengaturan untuk mengirim berkas.
             </div>
           </div>
           <Link
             href="/pengaturan"
             className="shrink-0 inline-flex items-center justify-center h-8 px-3 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
           >
-            Buka Pengaturan
+            Pengaturan
           </Link>
         </div>
       ) : null}
@@ -390,7 +419,7 @@ export default function UploadPage() {
               <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
               <div>
                 <h3 className="text-base font-semibold text-zinc-900">
-                  Berkas Berhasil Terkirim ke Volume
+                  Berkas terkirim ke Volume
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Ukuran: {formatFileSize(uploadSuccess.size)}
@@ -408,7 +437,7 @@ export default function UploadPage() {
             </div>
 
             <Callout type="info">
-              Berkas telah diteruskan ke Volume Databricks tanpa perubahan. Pemrosesan data akan dilakukan oleh pipeline di dalam Databricks.
+              Berkas tersimpan tanpa modifikasi untuk diproses pipeline Databricks.
             </Callout>
 
             <div className="pt-2">
@@ -417,7 +446,7 @@ export default function UploadPage() {
                 variant="primary"
                 onClick={handleResetForm}
               >
-                Unggah file lain
+                Unggah berkas lain
               </Button>
             </div>
           </section>
@@ -433,7 +462,7 @@ export default function UploadPage() {
 
             {validationResult.ok ? (
               <div className="space-y-4">
-                <Callout type="success" title="Berkas valid dan siap dikirim">
+                <Callout type="success" title="Berkas valid">
                   <div className="space-y-1">
                     <p>
                       {validationResult.summary.rowCount} baris data •{" "}
@@ -443,7 +472,7 @@ export default function UploadPage() {
                     {validationResult.warnings.length > 0 ? (
                       <p className="text-xs text-amber-800 pt-1">
                         Peringatan: {validationResult.warnings.length} catatan
-                        ditemukan (misalnya baris kosong atau pemisah desimal).
+                        ditemukan.
                       </p>
                     ) : null}
                   </div>
@@ -471,7 +500,7 @@ export default function UploadPage() {
               <div className="space-y-4">
                 <Callout
                   type="error"
-                  title={`Ditemukan ${validationResult.summary.totalErrors} kesalahan pada berkas`}
+                  title={`${validationResult.summary.totalErrors} kesalahan pada berkas`}
                 >
                   <div className="flex flex-wrap gap-2 pt-1">
                     {Object.entries(validationResult.summary.issueCounts).map(

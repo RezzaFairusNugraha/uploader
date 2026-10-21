@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import Button from "@/components/Button";
-import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
+import { notify } from "@/lib/notify";
 import type { ConnectionTestResult, MaskedSettings } from "@/lib/settings";
 
 interface FormState {
@@ -37,10 +37,6 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
   useEffect(() => {
@@ -72,10 +68,7 @@ export default function SettingsPage() {
       })
       .catch(() => {
         if (active) {
-          setSaveMessage({
-            type: "error",
-            text: "Gagal memuat pengaturan tersimpan",
-          });
+          notify.error("Gagal memuat pengaturan tersimpan");
           setIsLoading(false);
         }
       });
@@ -94,7 +87,6 @@ export default function SettingsPage() {
 
   const handleSave = async (): Promise<boolean> => {
     setIsSaving(true);
-    setSaveMessage(null);
 
     const payload = {
       workspaceUrl: formData.workspaceUrl,
@@ -117,9 +109,8 @@ export default function SettingsPage() {
       const result = await response.json().catch(() => null);
 
       if (!response.ok || !result) {
-        setSaveMessage({
-          type: "error",
-          text:
+        notify.error("Validasi pengaturan gagal", {
+          description:
             (result && result.error) ||
             `Gagal menyimpan pengaturan (status ${response.status})`,
         });
@@ -128,19 +119,20 @@ export default function SettingsPage() {
       }
 
       setSavedSettings(result.settings);
+      const replacedToken = isChangingToken && formData.token.trim().length > 0;
       setIsChangingToken(false);
       setFormData((prev) => ({ ...prev, token: "" }));
-      setSaveMessage({
-        type: "success",
-        text: "Pengaturan berhasil disimpan",
-      });
+      if (replacedToken) {
+        notify.success("Token diganti");
+      } else {
+        notify.success("Pengaturan disimpan");
+      }
       window.dispatchEvent(new Event("databricks-status-updated"));
       setIsSaving(false);
       return true;
     } catch {
-      setSaveMessage({
-        type: "error",
-        text: "Terjadi kesalahan jaringan saat menyimpan",
+      notify.error("Kesalahan jaringan", {
+        description: "Gagal terhubung ke server saat menyimpan",
       });
       setIsSaving(false);
       return false;
@@ -182,9 +174,8 @@ export default function SettingsPage() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok || !data) {
-        setSaveMessage({
-          type: "error",
-          text:
+        notify.error("Tes koneksi gagal", {
+          description:
             (data && data.error) ||
             `Gagal menjalankan tes koneksi (status ${response.status})`,
         });
@@ -192,13 +183,22 @@ export default function SettingsPage() {
         return;
       }
 
-      setTestResult(data.result);
+      const res = data.result as ConnectionTestResult;
+      setTestResult(res);
       window.dispatchEvent(new Event("databricks-status-updated"));
+
+      if (res.success) {
+        notify.success("Koneksi berhasil", {
+          description: "Volume utama dan subfolder terjangkau",
+        });
+      } else {
+        const failedStep = res.steps.find((s) => !s.success);
+        notify.error("Koneksi gagal", {
+          description: failedStep?.fix || failedStep?.message || "Periksa konfigurasi Databricks",
+        });
+      }
     } catch {
-      setSaveMessage({
-        type: "error",
-        text: "Koneksi terputus saat menguji server",
-      });
+      notify.error("Koneksi terputus saat menguji server");
     } finally {
       setIsTesting(false);
     }
@@ -218,7 +218,7 @@ export default function SettingsPage() {
       <div>
         <PageHeader
           title="Pengaturan"
-          description="Konfigurasi kredensial Databricks Files API dan lokasi target Volume."
+          description="Kredensial Databricks Files API dan lokasi target Volume."
         />
         <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center text-sm text-zinc-500">
           Memuat konfigurasi...
@@ -231,16 +231,10 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Pengaturan"
-        description="Konfigurasi kredensial Databricks Files API dan lokasi target Volume."
+        description="Kredensial Databricks Files API dan lokasi target Volume."
       />
 
       <div className="space-y-6">
-        {saveMessage ? (
-          <Callout type={saveMessage.type}>
-            {saveMessage.text}
-          </Callout>
-        ) : null}
-
         <div className="bg-white border border-zinc-200 rounded-xl p-6 sm:p-8 space-y-6">
           <Field
             id="workspaceUrl"
