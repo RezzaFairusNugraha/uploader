@@ -44,7 +44,7 @@ function formatFileSize(bytes: number): string {
 export default function UploadPage() {
   const templates = getAllTemplates();
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
-    templates[0].id
+    templates[0].id,
   );
   const [file, setFile] = useState<File | null>(null);
   const [validationResult, setValidationResult] =
@@ -87,13 +87,9 @@ export default function UploadPage() {
     };
   }, []);
 
-  const selectedTemplate =
-    getTemplateById(selectedTemplateId) || templates[0];
+  const selectedTemplate = getTemplateById(selectedTemplateId) || templates[0];
 
-  const runValidation = async (
-    targetFile: File,
-    template: TemplateConfig
-  ) => {
+  const runValidation = async (targetFile: File, template: TemplateConfig) => {
     setIsValidating(true);
     setUploadError(null);
     setUploadSuccess(null);
@@ -110,7 +106,7 @@ export default function UploadPage() {
         template,
         {
           maxFileSizeMb: settings?.maxFileSizeMb ?? 100,
-        }
+        },
       );
       setValidationResult(result);
     } catch {
@@ -199,7 +195,7 @@ export default function UploadPage() {
       const subfolder = getDestinationSubfolder(
         file.name,
         settings?.subfolderCsv,
-        settings?.subfolderParquet
+        settings?.subfolderParquet,
       );
 
       return {
@@ -219,7 +215,9 @@ export default function UploadPage() {
       error: (err) => ({
         title: "Unggahan ditolak",
         description:
-          err instanceof Error ? err.message : "Gagal mengirim berkas ke Volume",
+          err instanceof Error
+            ? err.message
+            : "Gagal mengirim berkas ke Volume",
       }),
     });
 
@@ -243,19 +241,20 @@ export default function UploadPage() {
 
   const isConfigured = Boolean(settings && settings.configured);
 
-  const previewDestination = file && settings
-    ? buildVolumePath(
-        settings.catalog || "<catalog>",
-        settings.schema || "<schema>",
-        settings.volume || "<volume>",
-        getDestinationSubfolder(
-          file.name,
-          settings.subfolderCsv,
-          settings.subfolderParquet
-        ),
-        buildDestinationFileName(selectedTemplate.id, file.name)
-      )
-    : null;
+  const previewDestination =
+    file && settings
+      ? buildVolumePath(
+          settings.catalog || "<catalog>",
+          settings.schema || "<schema>",
+          settings.volume || "<volume>",
+          getDestinationSubfolder(
+            file.name,
+            settings.subfolderCsv,
+            settings.subfolderParquet,
+          ),
+          buildDestinationFileName(selectedTemplate.id, file.name),
+        )
+      : null;
 
   return (
     <div>
@@ -314,9 +313,7 @@ export default function UploadPage() {
                     {tpl.name}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500 leading-normal">
-                    {hasColumns
-                      ? `CSV (pemisah '${tpl.delimiter}')`
-                      : "CSV atau Parquet"}
+                    {hasColumns ? `CSV` : "CSV atau Parquet"}
                   </p>
                   {hasColumns ? (
                     <div className="mt-3 pt-2 border-t border-zinc-100 flex items-center">
@@ -338,9 +335,7 @@ export default function UploadPage() {
         </section>
 
         <section className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 space-y-3">
-          <h2 className="text-sm font-semibold text-zinc-900">
-            2. Berkas
-          </h2>
+          <h2 className="text-sm font-semibold text-zinc-900">2. Berkas</h2>
 
           <input
             ref={fileInputRef}
@@ -437,15 +432,12 @@ export default function UploadPage() {
             </div>
 
             <Callout type="info">
-              Berkas tersimpan tanpa modifikasi untuk diproses pipeline Databricks.
+              Berkas tersimpan tanpa modifikasi untuk diproses pipeline
+              Databricks.
             </Callout>
 
             <div className="pt-2">
-              <Button
-                type="button"
-                variant="primary"
-                onClick={handleResetForm}
-              >
+              <Button type="button" variant="primary" onClick={handleResetForm}>
                 Unggah berkas lain
               </Button>
             </div>
@@ -456,9 +448,7 @@ export default function UploadPage() {
               3. Hasil Validasi
             </h2>
 
-            {uploadError ? (
-              <Callout type="error">{uploadError}</Callout>
-            ) : null}
+            {uploadError ? <Callout type="error">{uploadError}</Callout> : null}
 
             {validationResult.ok ? (
               <div className="space-y-4">
@@ -466,7 +456,8 @@ export default function UploadPage() {
                   <div className="space-y-1">
                     <p>
                       {validationResult.summary.rowCount} baris data •{" "}
-                      {validationResult.summary.columnCount} kolom • Pemisah &apos;
+                      {validationResult.summary.columnCount} kolom • Pemisah
+                      &apos;
                       {validationResult.summary.detectedDelimiter}&apos;
                     </p>
                     {validationResult.warnings.length > 0 ? (
@@ -511,7 +502,7 @@ export default function UploadPage() {
                         >
                           {code}: {count}
                         </span>
-                      )
+                      ),
                     )}
                   </div>
                 </Callout>
