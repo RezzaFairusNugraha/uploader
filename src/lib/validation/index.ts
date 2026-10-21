@@ -356,6 +356,12 @@ export function validateFile(
     template.columns.find((c) => c.name === name)
   );
 
+  const whitespaceStats: Record<string, { count: number; lines: number[] }> = {};
+  const decimalStats: Record<
+    string,
+    { dotCount: number; commaCount: number; firstDotLine?: number; firstCommaLine?: number }
+  > = {};
+
   let validDataRows = 0;
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -397,10 +403,75 @@ export function validateFile(
       if (!colDef) {
         continue;
       }
-      const cellIssues = validateCell(row[c], colDef, line);
+      const val = row[c];
+
+      if (val.length > 0) {
+        const hasStartOrEndSpace = val.startsWith(" ") || val.endsWith(" ");
+        if (hasStartOrEndSpace) {
+          if (!whitespaceStats[colDef.name]) {
+            whitespaceStats[colDef.name] = { count: 0, lines: [] };
+          }
+          const stat = whitespaceStats[colDef.name];
+          stat.count++;
+          if (stat.lines.length < 3) {
+            stat.lines.push(line);
+          }
+        }
+      }
+
+      const ruleType = colDef.rule.type;
+      if (ruleType === "decimal" || ruleType === "numericOrText") {
+        const trimmed = val.trim();
+        if (trimmed.length > 0) {
+          const hasDot = trimmed.includes(".");
+          const hasComma = trimmed.includes(",");
+          if ((hasDot && !hasComma) || (hasComma && !hasDot)) {
+            if (!decimalStats[colDef.name]) {
+              decimalStats[colDef.name] = { dotCount: 0, commaCount: 0 };
+            }
+            const stat = decimalStats[colDef.name];
+            if (hasDot) {
+              stat.dotCount++;
+              if (stat.firstDotLine === undefined) {
+                stat.firstDotLine = line;
+              }
+            } else {
+              stat.commaCount++;
+              if (stat.firstCommaLine === undefined) {
+                stat.firstCommaLine = line;
+              }
+            }
+          }
+        }
+      }
+
+      const cellIssues = validateCell(val, colDef, line);
       for (const ci of cellIssues) {
         addIssue(ci);
       }
+    }
+  }
+
+  for (const [colName, stat] of Object.entries(whitespaceStats)) {
+    if (stat.count > 0) {
+      const lineStr = stat.lines.join(", ");
+      addIssue({
+        level: "warning",
+        code: "WHITESPACE_TRIM_WARNING",
+        column: colName,
+        message: `${stat.count} nilai di kolom '${colName}' memiliki spasi di awal atau akhir (baris ${lineStr}).`,
+      });
+    }
+  }
+
+  for (const [colName, stat] of Object.entries(decimalStats)) {
+    if (stat.dotCount > 0 && stat.commaCount > 0) {
+      addIssue({
+        level: "warning",
+        code: "MIXED_DECIMAL_SEPARATORS",
+        column: colName,
+        message: `Kolom '${colName}' mencampur pemisah desimal titik (${stat.dotCount} nilai, contoh baris ${stat.firstDotLine}) dan koma (${stat.commaCount} nilai, contoh baris ${stat.firstCommaLine}).`,
+      });
     }
   }
 

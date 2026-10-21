@@ -10,6 +10,11 @@ export type Rule =
       allowComma: boolean;
       allowDot: boolean;
     }
+  | {
+      type: "numericOrText";
+      min?: number;
+      allowedText: string[];
+    }
   | { type: "anyValue" };
 
 export const rules = {
@@ -33,10 +38,15 @@ export const rules = {
     allowComma,
     allowDot,
   }),
+  numericOrText: (allowedText: string[], min?: number): Rule => ({
+    type: "numericOrText",
+    allowedText,
+    min,
+  }),
   anyValue: (): Rule => ({ type: "anyValue" }),
 };
 
-export function formatRuleDescription(rule: Rule): string {
+export function formatRuleDescription(rule: Rule, required: boolean = true): string {
   switch (rule.type) {
     case "digits":
       return `${rule.length} digit angka`;
@@ -45,9 +55,13 @@ export function formatRuleDescription(rule: Rule): string {
     case "integer":
       return "Bilangan bulat";
     case "text":
-      return "Teks tidak boleh kosong";
+      return required ? "Teks tidak boleh kosong" : "Teks, boleh kosong";
     case "decimal":
       return `Desimal (${rule.min} - ${rule.max})`;
+    case "numericOrText": {
+      const textList = rule.allowedText.map((t) => `'${t}'`).join(", ");
+      return `Angka (koma atau titik, boleh notasi ilmiah) atau teks ${textList}`;
+    }
     case "anyValue":
       return "Nilai bebas";
   }
@@ -73,7 +87,7 @@ export interface TemplateConfig {
   exampleRows: string[][];
 }
 
-export function quoteCsvField(field: string, delimiter: string): string {
+function quoteCsvField(field: string, delimiter: string): string {
   const needsQuotes =
     field.includes(delimiter) ||
     field.includes('"') ||

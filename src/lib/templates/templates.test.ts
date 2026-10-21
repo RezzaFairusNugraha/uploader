@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import { GET as getTemplateRoute } from "@/app/api/templates/[id]/route";
 import {
@@ -13,8 +11,6 @@ import {
 } from "./index";
 
 describe("Definisi Template & Generator CSV", () => {
-  const samplesDir = path.join(process.cwd(), "samples");
-
   describe("Konsistensi Internal Konfigurasi Template", () => {
     const allTemplates = getAllTemplates();
 
@@ -51,37 +47,30 @@ describe("Definisi Template & Generator CSV", () => {
   });
 
   describe("Kesesuaian Format Berkas dengan Direktori samples/", () => {
-    it("menghasilkan format CSV target-brand-distribution yang cocok dengan sampel", async () => {
-      const samplePath = path.join(
-        samplesDir,
-        "Target Brand Distribution.csv"
-      );
-      const sampleContent = await fs.readFile(samplePath, "utf8");
-      const sampleLines = sampleContent.split("\r\n");
-
+    it("menghasilkan format CSV target-brand-distribution yang memiliki header dan baris sesuai kolom", async () => {
       const generated = generateCsv(targetBrandDistributionTemplate, 3);
       const generatedLines = generated.split("\r\n");
 
       expect(generated.includes("\r\n")).toBe(true);
-      expect(generatedLines[0]).toBe(sampleLines[0]);
-      expect(generatedLines[1]).toBe(sampleLines[1]);
-      expect(generatedLines[2]).toBe(sampleLines[2]);
-      expect(generatedLines[3]).toBe(sampleLines[3]);
+      expect(generatedLines[0]).toBe(
+        "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name"
+      );
+      expect(generatedLines[1]).toBe(
+        '921000006;2026;1;1;MDN;101;Medan;"5,425579994";WD 12'
+      );
+      expect(generatedLines[2]).toBe(
+        "921000006;2026;1;1;MDN;104;Binjai - Langkat;Maintain % Last BD;WD 12"
+      );
     });
 
-    it("menghasilkan format CSV hari-besar yang cocok dengan sampel", async () => {
-      const samplePath = path.join(samplesDir, "Hari Besar Contoh.csv");
-      const sampleContent = await fs.readFile(samplePath, "utf8");
-      const sampleLines = sampleContent.split("\r\n");
-
+    it("menghasilkan format CSV hari-besar yang memiliki header dan contoh dengan KeteranganHariBesar kosong", async () => {
       const generated = generateCsv(hariBesarTemplate, 3);
       const generatedLines = generated.split("\r\n");
 
       expect(generated.includes("\r\n")).toBe(true);
-      expect(generatedLines[0]).toBe(sampleLines[0]);
-      expect(generatedLines[1]).toBe(sampleLines[1]);
-      expect(generatedLines[2]).toBe(sampleLines[2]);
-      expect(generatedLines[3]).toBe(sampleLines[3]);
+      expect(generatedLines[0]).toBe("Year;Week;KeteranganHariBesar");
+      expect(generatedLines[1]).toBe("2026;1;Tahun baru");
+      expect(generatedLines[2]).toBe("2026;2;");
     });
   });
 
@@ -100,7 +89,7 @@ describe("Definisi Template & Generator CSV", () => {
       expect(lines.length).toBe(4);
       expect(lines[0]).toBe("Year;Week;KeteranganHariBesar");
       expect(lines[1]).toBe("2026;1;Tahun baru");
-      expect(lines[2]).toBe("2026;2;Isra' Mi'raj");
+      expect(lines[2]).toBe("2026;2;");
       expect(lines[3]).toBe("2026;3;Penjatahan Harga Lama");
     });
 

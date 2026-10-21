@@ -218,51 +218,169 @@ describe("Validation Engine", () => {
       ).toBe(true);
     });
 
-    it("menolak tgt_pct_raw dengan nilai teks 'abc'", () => {
-      const content =
-        "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;abc;WD 12\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
+    describe("Aturan Baru Nilai Sel tgt_pct_raw dan Hari Besar", () => {
+      it("menerima nilai tgt_pct_raw yang valid: koma, titik, integer, nol, di atas 100, notasi ilmiah, dan teks Maintain % Last BD", () => {
+        const validValues = [
+          "5,425579994",
+          "5.425579994",
+          "100",
+          "0",
+          "114.6903821",
+          "1,83333E-05",
+          "Maintain % Last BD",
+        ];
 
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "INVALID_DECIMAL")).toBe(
-        true
-      );
-    });
+        for (const val of validValues) {
+          const content = `material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;${val};WD 12\r\n`;
+          const input = toInput("data.csv", content);
+          const result = validateFile(input, targetBrandDistributionTemplate);
+          expect(result.ok).toBe(true);
+          expect(result.errors.length).toBe(0);
+        }
+      });
 
-    it("menolak tgt_pct_raw dengan nilai 150 (melebihi rentang 100)", () => {
-      const content =
-        "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;150;WD 12\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
+      it("menolak nilai tgt_pct_raw yang tidak valid", () => {
+        const invalidValues = [
+          "abc",
+          "-5",
+          "",
+          "Maintain",
+          "maintain % last bd",
+          "12,5,5",
+        ];
 
-      expect(result.ok).toBe(false);
-      expect(
-        result.errors.some((e) => e.code === "INVALID_DECIMAL_RANGE")
-      ).toBe(true);
-    });
+        for (const val of invalidValues) {
+          const content = `material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;${val};WD 12\r\n`;
+          const input = toInput("data.csv", content);
+          const result = validateFile(input, targetBrandDistributionTemplate);
+          expect(result.ok).toBe(false);
+          expect(result.errors.length).toBeGreaterThan(0);
+        }
+      });
 
-    it("menghasilkan peringatan jika tgt_pct_raw memakai titik desimal", () => {
-      const content =
-        "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;5.42558;WD 12\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
+      it("memberikan tepat satu warning agregat untuk spasi di awal/akhir pada banyak baris", () => {
+        let content =
+          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n";
+        for (let i = 0; i < 10; i++) {
+          content += `921000006;2026;1;1;MDN;101;Medan ;5,425579994;WD 12\r\n`;
+        }
+        const input = toInput("data.csv", content);
+        const result = validateFile(input, targetBrandDistributionTemplate);
 
-      expect(result.ok).toBe(true);
-      expect(
-        result.warnings.some((w) => w.code === "DECIMAL_DOT_WARNING")
-      ).toBe(true);
-    });
+        expect(result.ok).toBe(true);
+        const wsWarnings = result.warnings.filter(
+          (w) => w.code === "WHITESPACE_TRIM_WARNING"
+        );
+        expect(wsWarnings.length).toBe(1);
+        expect(wsWarnings[0].message).toContain("10 nilai di kolom 'rayon_name'");
+        expect(wsWarnings[0].message).toContain("baris 2, 3, 4");
+      });
 
-    it("menolak kolom wajib KeteranganHariBesar yang kosong", () => {
-      const content = "Year;Week;KeteranganHariBesar\r\n2026;1;\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
+      it("menghasilkan warning agregat ketika titik dan koma dicampur pada kolom numerik yang sama", () => {
+        const mixedContent =
+          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;5.42;WD 12\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;6,95;WD 12\r\n";
+        const resultMixed = validateFile(
+          toInput("data.csv", mixedContent),
+          targetBrandDistributionTemplate
+        );
+        expect(resultMixed.ok).toBe(true);
+        const mixedWarnings = resultMixed.warnings.filter(
+          (w) => w.code === "MIXED_DECIMAL_SEPARATORS"
+        );
+        expect(mixedWarnings.length).toBe(1);
+        expect(mixedWarnings[0].message).toContain("titik (1 nilai");
+        expect(mixedWarnings[0].message).toContain("koma (1 nilai");
 
-      expect(result.ok).toBe(false);
-      expect(
-        result.errors.some((e) => e.code === "REQUIRED_FIELD_EMPTY")
-      ).toBe(true);
+        const onlyDots =
+          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;5.42;WD 12\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;6.95;WD 12\r\n";
+        const resultDots = validateFile(
+          toInput("data.csv", onlyDots),
+          targetBrandDistributionTemplate
+        );
+        expect(
+          resultDots.warnings.some((w) => w.code === "MIXED_DECIMAL_SEPARATORS")
+        ).toBe(false);
+
+        const onlyCommas =
+          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;5,42;WD 12\r\n" +
+          "921000006;2026;1;1;MDN;101;Medan;6,95;WD 12\r\n";
+        const resultCommas = validateFile(
+          toInput("data.csv", onlyCommas),
+          targetBrandDistributionTemplate
+        );
+        expect(
+          resultCommas.warnings.some(
+            (w) => w.code === "MIXED_DECIMAL_SEPARATORS"
+          )
+        ).toBe(false);
+      });
+
+      it("memvalidasi Hari Besar: KeteranganHariBesar kosong diizinkan, baris ';;' tetap warning, week di luar 1-53 dan year bukan 4 digit ditolak", () => {
+        const validBlank =
+          "Year;Week;KeteranganHariBesar\r\n2026;1;Tahun baru\r\n2026;24;\r\n2026;33;Kemerdekaan\r\n";
+        const resultBlank = validateFile(
+          toInput("data.csv", validBlank),
+          hariBesarTemplate
+        );
+        expect(resultBlank.ok).toBe(true);
+        expect(resultBlank.errors.length).toBe(0);
+        expect(resultBlank.warnings.length).toBe(0);
+
+        const withBlankRows =
+          "Year;Week;KeteranganHariBesar\r\n2026;1;Tahun baru\r\n;;\r\n2026;2;\r\n";
+        const resultBlankRows = validateFile(
+          toInput("data.csv", withBlankRows),
+          hariBesarTemplate
+        );
+        expect(resultBlankRows.ok).toBe(true);
+        expect(
+          resultBlankRows.warnings.some((w) => w.code === "BLANK_ROW")
+        ).toBe(true);
+
+        const weekZero = "Year;Week;KeteranganHariBesar\r\n2026;0;Libur\r\n";
+        expect(validateFile(toInput("data.csv", weekZero), hariBesarTemplate).ok).toBe(false);
+
+        const week54 = "Year;Week;KeteranganHariBesar\r\n2026;54;Libur\r\n";
+        expect(validateFile(toInput("data.csv", week54), hariBesarTemplate).ok).toBe(false);
+
+        const yearShort = "Year;Week;KeteranganHariBesar\r\n26;1;Libur\r\n";
+        expect(validateFile(toInput("data.csv", yearShort), hariBesarTemplate).ok).toBe(false);
+      });
+
+      it("mampu memvalidasi 40.000 baris dengan cepat di bawah 5 detik dan membatasi issue tersimpan maksimal 200", () => {
+        const header =
+          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n";
+        const validLine =
+          "921000006;2026;1;1;MDN;101;Medan;5,425579994;WD 12\r\n";
+        const largeContent = header + validLine.repeat(40000);
+        const input = toInput("large.csv", largeContent);
+
+        const start = Date.now();
+        const result = validateFile(input, targetBrandDistributionTemplate);
+        const duration = Date.now() - start;
+
+        expect(result.ok).toBe(true);
+        expect(result.summary.rowCount).toBe(40000);
+        expect(duration).toBeLessThan(5000);
+
+        const invalidLine =
+          "921000006;2026;5;1;MDN;101;Medan;abc;WD 12\r\n";
+        const invalidContent = header + invalidLine.repeat(300);
+        const invalidInput = toInput("invalid_large.csv", invalidContent);
+        const invalidResult = validateFile(
+          invalidInput,
+          targetBrandDistributionTemplate
+        );
+
+        expect(invalidResult.ok).toBe(false);
+        expect(invalidResult.errors.length).toBeLessThanOrEqual(200);
+        expect(invalidResult.summary.totalErrors).toBeGreaterThan(200);
+      });
     });
   });
 

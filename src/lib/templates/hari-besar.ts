@@ -23,13 +23,13 @@ export const hariBesarTemplate: TemplateConfig = {
     {
       name: "KeteranganHariBesar",
       label: "Keterangan Hari Besar",
-      required: true,
+      required: false,
       rule: rules.text(),
     },
   ],
   exampleRows: [
     ["2026", "1", "Tahun baru"],
-    ["2026", "2", "Isra' Mi'raj"],
+    ["2026", "2", ""],
     ["2026", "3", "Penjatahan Harga Lama"],
   ],
 };

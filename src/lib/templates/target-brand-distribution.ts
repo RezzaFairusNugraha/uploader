@@ -55,7 +55,7 @@ export const targetBrandDistributionTemplate: TemplateConfig = {
       name: "tgt_pct_raw",
       label: "Persentase Target Raw",
       required: true,
-      rule: rules.decimal(0, 100, true, true),
+      rule: rules.numericOrText(["Maintain % Last BD"], 0),
     },
     {
       name: "brand_name",
@@ -84,7 +84,7 @@ export const targetBrandDistributionTemplate: TemplateConfig = {
       "MDN",
       "104",
       "Binjai - Langkat",
-      "6,951219512",
+      "Maintain % Last BD",
       "WD 12",
     ],
     [

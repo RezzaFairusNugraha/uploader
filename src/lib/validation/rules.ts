@@ -121,27 +121,16 @@ export function validateCell(
         break;
       }
 
-      if (hasDot) {
-        if (!rule.allowDot) {
-          issues.push({
-            level: "error",
-            code: "INVALID_DECIMAL",
-            line,
-            column: column.name,
-            value: truncated,
-            message: `Kolom '${column.name}' tidak boleh menggunakan titik sebagai pemisah desimal.`,
-          });
-          break;
-        }
-
+      if (hasDot && !rule.allowDot) {
         issues.push({
-          level: "warning",
-          code: "DECIMAL_DOT_WARNING",
+          level: "error",
+          code: "INVALID_DECIMAL",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' menggunakan titik sebagai pemisah desimal, disarankan menggunakan koma.`,
+          message: `Kolom '${column.name}' tidak boleh menggunakan titik sebagai pemisah desimal.`,
         });
+        break;
       }
 
       if (hasComma && !rule.allowComma) {
@@ -180,6 +169,40 @@ export function validateCell(
           column: column.name,
           value: truncated,
           message: `Kolom '${column.name}' harus bernilai antara ${rule.min} dan ${rule.max}.`,
+        });
+      }
+      break;
+    }
+
+    case "numericOrText": {
+      if (rule.allowedText.includes(trimmed)) {
+        break;
+      }
+
+      const isNumeric = /^-?\d+([.,]\d+)?([eE][+-]?\d+)?$/.test(trimmed);
+      if (!isNumeric) {
+        const textOptions = rule.allowedText.map((t) => `'${t}'`).join(" atau ");
+        issues.push({
+          level: "error",
+          code: "INVALID_NUMERIC_OR_TEXT",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Kolom '${column.name}' harus berupa angka (bilangan bulat, desimal titik/koma, atau notasi ilmiah) atau teks ${textOptions}.`,
+        });
+        break;
+      }
+
+      const normalized = trimmed.replace(",", ".");
+      const val = Number(normalized);
+      if (isNaN(val) || (rule.min !== undefined && val < rule.min)) {
+        issues.push({
+          level: "error",
+          code: "INVALID_NUMERIC_RANGE",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Kolom '${column.name}' harus bernilai minimal ${rule.min ?? 0}.`,
         });
       }
       break;
