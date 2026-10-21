@@ -124,7 +124,7 @@ export function decryptToken(encrypted: EncryptedData, key: Buffer): string {
 }
 
 function getDefaultDataDir(): string {
-  return path.join(process.cwd(), "data");
+  return process.env.DATA_DIR || path.join(process.cwd(), "data");
 }
 
 export async function getOrCreateKey(customDir?: string): Promise<Buffer> {
@@ -166,20 +166,24 @@ export async function readDecryptedSettings(
     return null;
   }
 
-  const key = await getOrCreateKey(customDir);
-  const token = decryptToken(stored.tokenEncrypted, key);
+  try {
+    const key = await getOrCreateKey(customDir);
+    const token = decryptToken(stored.tokenEncrypted, key);
 
-  return {
-    workspaceUrl: stored.workspaceUrl,
-    token,
-    catalog: stored.catalog,
-    schema: stored.schema,
-    volume: stored.volume,
-    subfolderCsv: stored.subfolderCsv,
-    subfolderParquet: stored.subfolderParquet,
-    maxFileSizeMb: stored.maxFileSizeMb,
-    lastTestResult: stored.lastTestResult,
-  };
+    return {
+      workspaceUrl: stored.workspaceUrl,
+      token,
+      catalog: stored.catalog,
+      schema: stored.schema,
+      volume: stored.volume,
+      subfolderCsv: stored.subfolderCsv,
+      subfolderParquet: stored.subfolderParquet,
+      maxFileSizeMb: stored.maxFileSizeMb,
+      lastTestResult: stored.lastTestResult,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function readMaskedSettings(

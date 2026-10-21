@@ -114,12 +114,14 @@ export default function SettingsPage() {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => null);
 
-      if (!response.ok) {
+      if (!response.ok || !result) {
         setSaveMessage({
           type: "error",
-          text: result.error || "Gagal menyimpan pengaturan",
+          text:
+            (result && result.error) ||
+            `Gagal menyimpan pengaturan (status ${response.status})`,
         });
         setIsSaving(false);
         return false;
@@ -177,12 +179,14 @@ export default function SettingsPage() {
       const response = await fetch("/api/settings/test", {
         method: "POST",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
 
-      if (!response.ok) {
+      if (!response.ok || !data) {
         setSaveMessage({
           type: "error",
-          text: data.error || "Gagal menjalankan tes koneksi",
+          text:
+            (data && data.error) ||
+            `Gagal menjalankan tes koneksi (status ${response.status})`,
         });
         setIsTesting(false);
         return;

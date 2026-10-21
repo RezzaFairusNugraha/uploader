@@ -46,6 +46,7 @@ export function createDatabricksClient(
           headers: {
             Authorization: `Bearer ${token}`,
           },
+          signal: AbortSignal.timeout(15000),
         });
 
         if (response.ok) {
@@ -80,6 +81,7 @@ export function createDatabricksClient(
             "Content-Type": "application/octet-stream",
           },
           body,
+          signal: AbortSignal.timeout(15000),
         });
 
         if (response.ok) {
