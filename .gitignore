@@ -40,3 +40,9 @@ data/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ai tooling
+AGENTS.md
+CLAUDE.md
+.cursorrules
+.cursor/

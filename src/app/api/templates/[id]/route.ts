@@ -22,7 +22,11 @@ export async function GET(
     );
   }
 
-  const csvContent = generateCsv(template, 1);
+  const { searchParams } = new URL(request.url);
+  const contoh = searchParams.get("contoh");
+  const sampleCount = contoh === "1" ? 3 : 1;
+
+  const csvContent = generateCsv(template, sampleCount);
   const filename = `${template.id}.csv`;
 
   return new Response(csvContent, {

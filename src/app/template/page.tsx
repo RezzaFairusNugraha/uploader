@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import { notify } from "@/lib/notify";
 import {
   formatRuleDescription,
   getAllTemplates,
@@ -21,7 +22,7 @@ export default function TemplatePage() {
     <div>
       <PageHeader
         title="Template CSV"
-        description="Unduh acuan format CSV dan pelajari aturan kolom sebelum mengunggah berkas data."
+        description="Format dan aturan kolom berkas data."
       />
 
       <div className="space-y-4">
@@ -57,6 +58,7 @@ export default function TemplatePage() {
                       <a
                         href={`/api/templates/${tpl.id}`}
                         download={`${tpl.id}.csv`}
+                        onClick={() => notify.success("Template diunduh", { description: `${tpl.id}.csv` })}
                         className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg text-xs font-medium transition-colors bg-white text-zinc-900 border border-zinc-200 hover:bg-zinc-50 active:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 shadow-xs"
                       >
                         <Download className="w-3.5 h-3.5 text-zinc-600" />
@@ -123,7 +125,7 @@ export default function TemplatePage() {
                                 </span>
                               </td>
                               <td className="px-3.5 py-2 text-zinc-600">
-                                {formatRuleDescription(col.rule)}
+                                {formatRuleDescription(col.rule, col.required)}
                               </td>
                             </tr>
                           ))}
