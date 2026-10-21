@@ -1,0 +1,102 @@
+import { rules, type TemplateConfig } from "./types";
+
+export const targetBrandDistributionTemplate: TemplateConfig = {
+  id: "target-brand-distribution",
+  name: "Target Brand Distribution",
+  description:
+    "Distribusi target penjualan per grup material, wilayah, dan merek produk.",
+  kind: "csv",
+  delimiter: ";",
+  fileNamePrefix: "Target Brand Distribution",
+  columns: [
+    {
+      name: "material_group_code",
+      label: "Kode Grup Material",
+      required: true,
+      rule: rules.digits(9),
+    },
+    {
+      name: "tgt_year",
+      label: "Tahun Target",
+      required: true,
+      rule: rules.digits(4),
+    },
+    {
+      name: "tgt_quarter",
+      label: "Kuartal Target",
+      required: true,
+      rule: rules.integerRange(1, 4),
+    },
+    {
+      name: "regional_code",
+      label: "Kode Regional",
+      required: true,
+      rule: rules.integer(),
+    },
+    {
+      name: "area_short",
+      label: "Kode Area",
+      required: true,
+      rule: rules.text(),
+    },
+    {
+      name: "rayon_code",
+      label: "Kode Rayon",
+      required: true,
+      rule: rules.integer(),
+    },
+    {
+      name: "rayon_name",
+      label: "Nama Rayon",
+      required: true,
+      rule: rules.text(),
+    },
+    {
+      name: "tgt_pct_raw",
+      label: "Persentase Target Raw",
+      required: true,
+      rule: rules.decimal(0, 100, true, true),
+    },
+    {
+      name: "brand_name",
+      label: "Nama Merek",
+      required: true,
+      rule: rules.text(),
+    },
+  ],
+  exampleRows: [
+    [
+      "921000006",
+      "2026",
+      "1",
+      "1",
+      "MDN",
+      "101",
+      "Medan",
+      "5,425579994",
+      "WD 12",
+    ],
+    [
+      "921000006",
+      "2026",
+      "1",
+      "1",
+      "MDN",
+      "104",
+      "Binjai - Langkat",
+      "6,951219512",
+      "WD 12",
+    ],
+    [
+      "921000006",
+      "2026",
+      "1",
+      "1",
+      "MDN",
+      "102",
+      "Deli Serdang",
+      "4,344827586",
+      "WD 12",
+    ],
+  ],
+};
