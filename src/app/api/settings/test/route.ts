@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { verifyAdminToken } from "@/lib/adminAuth";
 import { runConnectionTest } from "@/lib/databricks";
 import { readDecryptedSettings, saveTestResult } from "@/lib/settings";
 
 export async function POST() {
   try {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("admin_session")?.value;
+    if (!sessionCookie || !verifyAdminToken(sessionCookie)) {
+      return NextResponse.json(
+        { error: "Akses ditolak. Silakan masuk sebagai administrator." },
+        { status: 401 }
+      );
+    }
     const settings = await readDecryptedSettings();
     if (!settings) {
       return NextResponse.json(

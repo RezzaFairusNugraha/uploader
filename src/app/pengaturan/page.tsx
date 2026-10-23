@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, Lock, LogOut, ShieldAlert, XCircle } from "lucide-react";
 import Button from "@/components/Button";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
@@ -24,29 +24,44 @@ const initialFormState: FormState = {
   maxFileSizeMb: 100,
 };
 
-export default function SettingsPage() {
+export default function DatabricksConnectionPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+
   const [formData, setFormData] = useState<FormState>(initialFormState);
-  const [savedSettings, setSavedSettings] = useState<MaskedSettings | null>(
-    null,
-  );
+  const [savedSettings, setSavedSettings] = useState<MaskedSettings | null>(null);
   const [isChangingToken, setIsChangingToken] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(
-    null,
-  );
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    fetch("/api/settings")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active) {
-          return;
+  const checkAuth = async () => {
+    try {
+      const res = await fetch("/api/admin/auth");
+      if (res.ok) {
+        const data = await res.json();
+        setIsAuthenticated(data.isAuthenticated);
+        setHasPassword(data.hasPassword);
+        if (data.isAuthenticated) {
+          loadSettings();
         }
+      }
+    } catch {
+    } finally {
+      setAuthChecking(false);
+    }
+  };
 
+  const loadSettings = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
         if (data && data.settings) {
           setSavedSettings(data.settings);
           setFormData({
@@ -60,18 +75,59 @@ export default function SettingsPage() {
             setTestResult(data.settings.lastTestResult);
           }
         }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) {
-          setIsLoading(false);
-        }
-      });
+      }
+    } catch {
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    return () => {
-      active = false;
-    };
+  useEffect(() => {
+    checkAuth();
   }, []);
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPasswordInput) {
+      notify.error("Kata sandi wajib diisi");
+      return;
+    }
+    setIsSubmittingAuth(true);
+    try {
+      const res = await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPasswordInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Autentikasi gagal");
+      }
+      notify.success(data.message || "Berhasil masuk sebagai admin");
+      setIsAuthenticated(true);
+      setAdminPasswordInput("");
+      loadSettings();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
+      notify.error(msg);
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" }),
+      });
+      setIsAuthenticated(false);
+      notify.success("Sesi admin telah berakhir");
+    } catch {
+      notify.error("Gagal logout");
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -113,13 +169,14 @@ export default function SettingsPage() {
         throw new Error(data.error || "Gagal menyimpan pengaturan");
       }
 
+      notify.success("Pengaturan koneksi Databricks berhasil disimpan");
       setSavedSettings(data.settings);
       setIsChangingToken(false);
       setFormData((prev) => ({ ...prev, token: "" }));
-      notify.success("Pengaturan disimpan");
+      window.dispatchEvent(new Event("databricks-status-updated"));
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Terjadi kesalahan";
-      notify.error(message);
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
+      notify.error(msg);
     } finally {
       setIsSaving(false);
     }
@@ -127,174 +184,204 @@ export default function SettingsPage() {
 
   const handleTestConnection = async () => {
     setIsTesting(true);
+    setTestResult(null);
 
     try {
       const res = await fetch("/api/settings/test", { method: "POST" });
       const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.error || "Uji koneksi gagal dijalankan");
+        throw new Error(data.error || "Pengujian koneksi gagal");
       }
 
       setTestResult(data.result);
-      if (data.result.success) {
-        notify.success("Koneksi berhasil");
+      if (data.success) {
+        notify.success("Koneksi ke Databricks berhasil diverifikasi");
       } else {
-        const failedStep = data.result.steps?.find(
-          (s: { success: boolean }) => !s.success,
-        );
-        notify.error(failedStep?.fix || "Koneksi gagal");
+        notify.error("Pengujian koneksi menemukan kendala");
       }
+      window.dispatchEvent(new Event("databricks-status-updated"));
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Uji koneksi gagal";
-      notify.error(message);
+      const msg = err instanceof Error ? err.message : "Terjadi kendala teknis";
+      notify.error(msg);
     } finally {
       setIsTesting(false);
     }
   };
 
-  if (isLoading) {
+  if (authChecking) {
     return (
-      <div className="py-12 text-center text-sm text-zinc-500">
-        Memuat pengaturan...
+      <div className="py-12 text-center text-base text-zinc-500">
+        Memeriksa hak akses administrator...
       </div>
     );
   }
 
-  const catalogDisplay = formData.catalog || "<katalog>";
-  const schemaDisplay = formData.schema || "<skema>";
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto space-y-6 pt-8">
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold text-zinc-900">
+            Akses Khusus Administrator
+          </h1>
+          <p className="text-sm text-zinc-500">
+            {hasPassword
+              ? "Masukkan kata sandi admin untuk mengubah pengaturan koneksi Databricks."
+              : "Buat kata sandi admin pertama untuk mengamankan koneksi penyimpanan."}
+          </p>
+        </div>
+
+        <form
+          onSubmit={handleAuthSubmit}
+          className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4 shadow-xs"
+        >
+          <Field
+            id="admin-password"
+            label={hasPassword ? "Kata Sandi Admin" : "Buat Kata Sandi Admin"}
+            name="adminPassword"
+            type="password"
+            value={adminPasswordInput}
+            onChange={(e) => setAdminPasswordInput(e.target.value)}
+            required
+            hint={
+              hasPassword
+                ? "Sesi login berlaku selama 8 jam."
+                : "Minimal 6 karakter. Harap simpan kata sandi ini dengan aman."
+            }
+          />
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full"
+            isLoading={isSubmittingAuth}
+          >
+            {hasPassword ? "Buka Pengaturan" : "Simpan & Buka Pengaturan"}
+          </Button>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Pengaturan"
-        description="Konfigurasi koneksi Databricks dan Unity Catalog."
-      />
+    <div className="space-y-8 text-base">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <PageHeader
+          title="Koneksi Databricks"
+          description="Konfigurasi kredensial Unity Catalog untuk penyimpanan berkas (Area Khusus Administrator)."
+        />
+        <Button variant="ghost" onClick={handleLogout}>
+          <LogOut className="w-4 h-4 mr-1.5 inline" />
+          Keluar Admin
+        </Button>
+      </div>
 
       <form onSubmit={handleSave} className="space-y-6">
-        <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-5">
-          <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
-            Kredensial Databricks
+        <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
+          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+            Kredensial Workspace & Akses
           </h2>
 
           <Field
-            id="workspaceUrl"
-            label="URL Workspace"
-            hint="Contoh: https://adb-123456789.azuredatabricks.net"
+            id="workspace-url"
+            label="Workspace URL"
             name="workspaceUrl"
             value={formData.workspaceUrl}
             onChange={handleChange}
-            placeholder="https://dbc-xxxx.cloud.databricks.com"
+            placeholder="https://adb-xxxxxxxx.azuredatabricks.net"
+            hint="Alamat workspace Databricks Anda"
             required
           />
 
           <div>
-            <label className="block text-sm font-medium text-zinc-900 mb-1.5">
-              Personal Access Token (PAT)
+            <label className="block text-sm font-medium text-zinc-700 mb-1.5">
+              Personal Access Token
             </label>
-
             {savedSettings?.hasToken && !isChangingToken ? (
               <div className="flex items-center gap-3">
                 <input
                   type="text"
                   disabled
                   value={savedSettings.tokenMasked}
-                  className="flex-1 h-10 px-3 rounded-lg border border-zinc-200 bg-zinc-50 text-sm font-mono text-zinc-500 cursor-not-allowed"
+                  className="flex-1 h-11 px-3 text-base bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-500 font-mono"
                 />
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() => setIsChangingToken(true)}
                 >
-                  Ganti token
+                  Ganti Token
                 </Button>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="password"
-                    name="token"
-                    value={formData.token}
-                    onChange={handleChange}
-                    placeholder="dapi..."
-                    required={!savedSettings?.hasToken}
-                    className="flex-1 h-10 px-3 rounded-lg border border-zinc-200 bg-white text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition"
-                  />
-                  {savedSettings?.hasToken && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setIsChangingToken(false);
-                        setFormData((prev) => ({ ...prev, token: "" }));
-                      }}
-                    >
-                      Batal
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500">
-                  Token disimpan dengan enkripsi AES-256-GCM pada disk lokal.
-                </p>
+                <input
+                  type="password"
+                  name="token"
+                  value={formData.token}
+                  onChange={handleChange}
+                  placeholder="dapi..."
+                  className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
+                  required={!savedSettings?.hasToken}
+                />
+                {savedSettings?.hasToken && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChangingToken(false);
+                      setFormData((prev) => ({ ...prev, token: "" }));
+                    }}
+                    className="text-xs text-zinc-500 hover:text-zinc-800 underline"
+                  >
+                    Batal ganti token
+                  </button>
+                )}
               </div>
             )}
+            <p className="text-xs text-zinc-500 mt-1">
+              Token dienkripsi dengan AES-256-GCM dan tidak pernah ditampilkan penuh.
+            </p>
           </div>
         </div>
 
-        <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-5">
-          <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
-            Target Unity Catalog
+        <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
+          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+            Lokasi Unity Catalog
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field
               id="catalog"
-              label="Katalog"
-              hint="Nama katalog Unity Catalog"
+              label="Catalog (Katalog)"
               name="catalog"
               value={formData.catalog}
               onChange={handleChange}
-              placeholder="main"
+              hint="Nama katalog Unity Catalog"
               required
             />
 
             <Field
               id="schema"
-              label="Skema"
-              hint="Nama skema / database"
+              label="Schema (Skema)"
               name="schema"
               value={formData.schema}
               onChange={handleChange}
-              placeholder="sales"
+              hint="Nama skema di dalam katalog"
               required
             />
           </div>
 
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-xs text-zinc-600 font-mono space-y-1">
-            <div className="font-sans font-medium text-zinc-800 text-[13px] mb-1">
-              Pola Lokasi Volume:
-            </div>
-            <div>
-              /Volumes/{catalogDisplay}/{schemaDisplay}/&lt;Volume&gt;/csv/
-            </div>
-            <div>
-              /Volumes/{catalogDisplay}/{schemaDisplay}/&lt;Volume&gt;/parquet/
-            </div>
-          </div>
-
           <Field
-            id="maxFileSizeMb"
-            label="Batas ukuran berkas (MB)"
-            hint="Maksimal ukuran berkas yang dapat diunggah."
-            type="number"
+            id="max-upload-size"
+            label="Batas Maksimum Ukuran Berkas (MB)"
             name="maxFileSizeMb"
-            min={1}
-            max={1000}
+            type="number"
             value={formData.maxFileSizeMb}
             onChange={handleChange}
+            hint="Standar 100 MB"
             required
-            className="w-full sm:w-48"
           />
         </div>
 
@@ -302,55 +389,45 @@ export default function SettingsPage() {
           <Button
             type="button"
             variant="secondary"
-            disabled={!savedSettings?.configured || isTesting || isSaving}
-            isLoading={isTesting}
             onClick={handleTestConnection}
+            disabled={!savedSettings?.hasToken || isTesting || isSaving}
+            isLoading={isTesting}
           >
-            Uji koneksi
+            Uji Koneksi Read-Only
           </Button>
 
           <Button type="submit" variant="primary" isLoading={isSaving}>
-            Simpan pengaturan
+            Simpan Pengaturan
           </Button>
         </div>
       </form>
 
+      {/* Hasil Uji Koneksi */}
       {testResult && (
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-900">
-              Hasil Uji Koneksi
-            </h2>
-            <span className="text-xs text-zinc-500">
-              {new Date(testResult.testedAt).toLocaleTimeString("id-ID", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </span>
-          </div>
+          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-2">
+            Hasil Uji Koneksi
+          </h2>
 
           <div className="space-y-3">
-            {testResult.steps.map((step, idx) => (
+            {testResult.steps.map((st, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-3 text-sm p-3 rounded-lg bg-zinc-50 border border-zinc-100"
+                className="flex items-start gap-3 text-sm p-3 rounded-lg border border-zinc-100 bg-zinc-50/50"
               >
-                {step.success ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                {st.success ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
                 ) : (
-                  <XCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                  <XCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
                 )}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-zinc-900">{step.name}</div>
-                  {step.message && (
-                    <div className="text-xs text-zinc-500 mt-0.5">
-                      {step.message}
-                    </div>
+                <div className="space-y-0.5">
+                  <div className="font-semibold text-zinc-900">{st.name}</div>
+                  {st.message && (
+                    <div className="text-zinc-600">{st.message}</div>
                   )}
-                  {step.fix && (
-                    <div className="text-xs text-indigo-600 mt-1 font-medium">
-                      Saran: {step.fix}
+                  {st.fix && (
+                    <div className="text-rose-600 text-xs font-mono">
+                      {st.fix}
                     </div>
                   )}
                 </div>

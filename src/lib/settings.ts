@@ -32,6 +32,7 @@ export interface DecryptedSettings {
   subfolderCsv?: string;
   subfolderParquet?: string;
   maxFileSizeMb: number;
+  adminPasswordHash?: string | null;
   lastTestResult?: ConnectionTestResult;
 }
 
@@ -46,6 +47,7 @@ export interface MaskedSettings {
   subfolderCsv?: string;
   subfolderParquet?: string;
   maxFileSizeMb: number;
+  hasAdminPassword?: boolean;
   lastTestResult?: ConnectionTestResult;
 }
 
@@ -173,6 +175,7 @@ export const settingsFormSchema = z.object({
     .int("Batas ukuran file harus berupa bilangan bulat")
     .positive("Batas ukuran file harus lebih besar dari 0")
     .default(100),
+  adminPasswordHash: z.string().optional(),
 });
 
 export type SettingsFormData = z.infer<typeof settingsFormSchema>;
@@ -209,6 +212,7 @@ export class DrizzleSettingsStore implements SettingsStore {
         catalog: row.catalog,
         schema: row.schema,
         maxFileSizeMb: row.maxUploadMb,
+        adminPasswordHash: row.adminPasswordHash,
         lastTestResult: this.lastTestResultMemory,
       };
     } catch {
@@ -230,6 +234,7 @@ export class DrizzleSettingsStore implements SettingsStore {
       catalog: decrypted.catalog,
       schema: decrypted.schema,
       maxFileSizeMb: decrypted.maxFileSizeMb,
+      hasAdminPassword: Boolean(decrypted.adminPasswordHash),
       lastTestResult: decrypted.lastTestResult,
     };
   }
@@ -252,6 +257,8 @@ export class DrizzleSettingsStore implements SettingsStore {
     const serializedToken = serializeEncryptedData(encrypted);
     const db = createDb();
 
+    const adminHash = input.adminPasswordHash ?? existing?.adminPasswordHash ?? null;
+
     await withDbRetry(() =>
       db
         .insert(appSettings)
@@ -262,6 +269,7 @@ export class DrizzleSettingsStore implements SettingsStore {
           catalog: input.catalog,
           schema: input.schema,
           maxUploadMb: input.maxFileSizeMb || 100,
+          adminPasswordHash: adminHash,
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -272,6 +280,7 @@ export class DrizzleSettingsStore implements SettingsStore {
             catalog: input.catalog,
             schema: input.schema,
             maxUploadMb: input.maxFileSizeMb || 100,
+            adminPasswordHash: adminHash,
             updatedAt: new Date(),
           },
         })
@@ -339,6 +348,7 @@ export class FakeInMemorySettingsStore implements SettingsStore {
       catalog: decrypted.catalog,
       schema: decrypted.schema,
       maxFileSizeMb: decrypted.maxFileSizeMb,
+      hasAdminPassword: Boolean(decrypted.adminPasswordHash),
       lastTestResult: decrypted.lastTestResult,
     };
   }
