@@ -26,15 +26,17 @@ export function formatTimestamp(date: Date = new Date()): string {
 }
 
 export function buildDestinationFileName(
-  templateId: string,
+  slugOrTemplateId: string,
   originalFileName: string,
   now: Date = new Date()
 ): string {
   const lastDot = originalFileName.lastIndexOf(".");
   const ext =
     lastDot !== -1 ? originalFileName.slice(lastDot).toLowerCase() : ".csv";
+  const rawBase = lastDot !== -1 ? originalFileName.slice(0, lastDot) : originalFileName;
+  const sanitized = sanitizeFileName(rawBase);
   const timestamp = formatTimestamp(now);
-  return `${templateId}__${timestamp}${ext}`;
+  return `${timestamp}__${sanitized}${ext}`;
 }
 
 export function getDestinationSubfolder(

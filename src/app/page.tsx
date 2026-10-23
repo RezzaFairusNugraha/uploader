@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Download,
   FileSpreadsheet,
+  Plus,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -15,19 +16,14 @@ import Callout from "@/components/Callout";
 import PageHeader from "@/components/PageHeader";
 import { notify } from "@/lib/notify";
 import type { MaskedSettings } from "@/lib/settings";
-import {
-  getAllTemplates,
-  getTemplateById,
-  type TemplateConfig,
-} from "@/lib/templates";
+import type { TemplateDefinition } from "@/lib/templates";
 import {
   buildDestinationFileName,
   buildVolumePath,
-  getDestinationSubfolder,
 } from "@/lib/upload/filename";
 import {
   validateFile,
-  type ValidationIssue,
+  type ValidationInput,
   type ValidationResult,
 } from "@/lib/validation";
 
@@ -42,75 +38,80 @@ function formatFileSize(bytes: number): string {
 }
 
 export default function UploadPage() {
-  const templates = getAllTemplates();
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
-    templates[0].id,
-  );
+  const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [validationResult, setValidationResult] =
     useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState<{
-    path: string;
-    size: number;
-    fileName: string;
-  } | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [settings, setSettings] = useState<MaskedSettings | null>(null);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
-
+  const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    let active = true;
-    fetch("/api/settings")
-      .then((res) => (res.ok ? res.json() : null))
+    fetch("/api/templates")
+      .then((res) => res.json())
       .then((data) => {
-        if (!active) {
-          return;
+        const activeTemplates = (data.templates || []).filter(
+          (t: TemplateDefinition) => t.status === "aktif"
+        );
+        setTemplates(activeTemplates);
+        if (activeTemplates.length > 0) {
+          setSelectedTemplateId(activeTemplates[0].id);
         }
-        if (data && data.configured) {
-          setSettings(data);
-        }
-        setSettingsLoaded(true);
+      })
+      .catch(() => {});
+
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        setSettings(data.settings);
+        setIsSettingsConfigured(Boolean(data.configured));
       })
       .catch(() => {
-        if (active) {
-          setSettingsLoaded(true);
-        }
+        setIsSettingsConfigured(false);
       });
-
-    return () => {
-      active = false;
-    };
   }, []);
 
-  const selectedTemplate = getTemplateById(selectedTemplateId) || templates[0];
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
-  const runValidation = async (targetFile: File, template: TemplateConfig) => {
+  const processValidation = async (targetFile: File, template: TemplateDefinition) => {
     setIsValidating(true);
-    setUploadError(null);
-    setUploadSuccess(null);
+    setValidationResult(null);
+    setUploadedPath(null);
 
     try {
       const buffer = await targetFile.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const result = validateFile(
-        {
-          name: targetFile.name,
-          size: targetFile.size,
-          bytes,
-        },
-        template,
-        {
-          maxFileSizeMb: settings?.maxFileSizeMb ?? 100,
-        },
-      );
+      const validationInput: ValidationInput = {
+        name: targetFile.name,
+        size: targetFile.size,
+        bytes: new Uint8Array(buffer),
+      };
+      const result = await validateFile(validationInput, template);
       setValidationResult(result);
     } catch {
-      setUploadError("Gagal memproses validasi berkas");
+      setValidationResult({
+        ok: false,
+        summary: {
+          rowCount: 0,
+          columnCount: 0,
+          totalErrors: 1,
+          totalWarnings: 0,
+          detectedDelimiter: "",
+          issueCounts: { FILE_READ_ERROR: 1 },
+        },
+        errors: [
+          {
+            code: "FILE_READ_ERROR",
+            level: "error",
+            message: "Gagal membaca berkas.",
+          },
+        ],
+        warnings: [],
+      });
     } finally {
       setIsValidating(false);
     }
@@ -118,447 +119,399 @@ export default function UploadPage() {
 
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplateId(templateId);
-    setUploadError(null);
-    setUploadSuccess(null);
-    const newTemplate = getTemplateById(templateId);
+    const newTemplate = templates.find((t) => t.id === templateId);
     if (file && newTemplate) {
-      runValidation(file, newTemplate);
+      processValidation(file, newTemplate);
     }
   };
 
   const handleFileSelect = (selectedFile: File) => {
     setFile(selectedFile);
-    setUploadSuccess(null);
-    setUploadError(null);
-    runValidation(selectedFile, selectedTemplate);
+    if (selectedTemplate) {
+      processValidation(selectedFile, selectedTemplate);
+    }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileSelect(e.dataTransfer.files[0]);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  };
-
-  const handleRemoveFile = () => {
-    setFile(null);
-    setValidationResult(null);
-    setUploadError(null);
-    setUploadSuccess(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+  const handleDownloadTemplate = async (templateId: string) => {
+    try {
+      const res = await fetch(`/api/templates/${templateId}/file?contoh=1`);
+      if (!res.ok) {
+        throw new Error("Gagal mengunduh template");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${selectedTemplate?.slug || "template"}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      notify.success("Template berhasil diunduh");
+    } catch {
+      notify.error("Gagal mengunduh template");
     }
   };
 
-  const handleSendToDatabricks = async () => {
-    if (!file || !validationResult || !validationResult.ok) {
-      return;
-    }
+  const handleUpload = async () => {
+    if (!file || !selectedTemplate || !validationResult?.ok) return;
 
     setIsUploading(true);
-
     const formData = new FormData();
     formData.append("file", file);
     formData.append("templateId", selectedTemplate.id);
 
-    const uploadPromise = async () => {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data || !data.success) {
-        const errorMsg =
-          (data && data.error) || "Gagal meneruskan berkas ke Volume";
-        throw new Error(errorMsg);
+    const uploadPromise = fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal mengunggah berkas");
       }
+      return data;
+    });
 
-      setUploadSuccess({
-        path: data.path,
-        size: data.size,
-        fileName: data.fileName,
-      });
-
-      const subfolder = getDestinationSubfolder(
-        file.name,
-        settings?.subfolderCsv,
-        settings?.subfolderParquet,
-      );
-
-      return {
-        subfolder,
-        fileName: data.fileName || file.name,
-      };
-    };
-
-    const task = uploadPromise();
-
-    notify.promise(task, {
-      loading: "Mengirim ke Databricks",
-      success: (res) => ({
-        title: `Terkirim ke ${res.subfolder}/`,
-        description: res.fileName,
-      }),
-      error: (err) => ({
-        title: "Unggahan ditolak",
-        description:
-          err instanceof Error
-            ? err.message
-            : "Gagal mengirim berkas ke Volume",
-      }),
+    notify.promise(uploadPromise, {
+      loading: "Mengirim ke Databricks...",
+      success: (data: { destinationPath: string; fileName: string }) => {
+        setUploadedPath(data.destinationPath);
+        return `File terkirim: ${data.fileName}`;
+      },
+      error: (err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Gagal mengirim ke Databricks";
+        return msg;
+      },
     });
 
     try {
-      await task;
+      await uploadPromise;
     } catch {
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleResetForm = () => {
+  const resetUploadState = () => {
     setFile(null);
     setValidationResult(null);
-    setUploadSuccess(null);
-    setUploadError(null);
+    setUploadedPath(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const isConfigured = Boolean(settings && settings.configured);
+  const destinationSubfolder = file?.name.toLowerCase().endsWith(".parquet")
+    ? "parquet"
+    : "csv";
 
-  const previewDestination =
-    file && settings
+  const destinationFileName =
+    file && selectedTemplate
+      ? buildDestinationFileName(selectedTemplate.slug, file.name)
+      : null;
+
+  const destinationPath =
+    selectedTemplate && destinationFileName
       ? buildVolumePath(
-          settings.catalog || "<catalog>",
-          settings.schema || "<schema>",
-          settings.volume || "<volume>",
-          getDestinationSubfolder(
-            file.name,
-            settings.subfolderCsv,
-            settings.subfolderParquet,
-          ),
-          buildDestinationFileName(selectedTemplate.id, file.name),
+          selectedTemplate.volume.catalog,
+          selectedTemplate.volume.schema,
+          selectedTemplate.volume.name,
+          destinationSubfolder,
+          destinationFileName
         )
       : null;
 
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
-        title="Unggah Berkas"
-        description="Pilih template, validasi integritas data, dan kirim berkas ke Databricks Unity Catalog Volume."
+        title="Unggah Data"
+        description="Pilih template, periksa format berkas secara lokal, dan kirim ke Volume."
       />
 
-      {settingsLoaded && !isConfigured ? (
-        <div className="mb-6 p-4 border border-amber-200 bg-amber-50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-900 leading-relaxed">
-              <span className="font-semibold">
-                Koneksi Databricks belum diatur.
-              </span>{" "}
-              Lengkapi kredensial di halaman Pengaturan untuk mengirim berkas.
+      {!isSettingsConfigured && (
+        <Callout
+          type="warning"
+          title="Pengaturan Databricks belum lengkap"
+        >
+          Konfigurasikan URL workspace, token, katalog, dan skema di halaman Pengaturan sebelum
+          mengunggah berkas.
+        </Callout>
+      )}
+
+      {/* 1. Template */}
+      <section className="space-y-3">
+        <label className="block text-sm font-semibold text-zinc-900">
+          Template
+        </label>
+        {templates.length === 0 ? (
+          <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center space-y-3">
+            <p className="text-sm text-zinc-500">
+              Belum ada template yang aktif.
+            </p>
+            <div>
+              <Link href="/template/baru">
+                <Button variant="primary">
+                  <Plus className="w-4 h-4 mr-1.5 inline" />
+                  Buat template baru
+                </Button>
+              </Link>
             </div>
           </div>
-          <Link
-            href="/pengaturan"
-            className="shrink-0 inline-flex items-center justify-center h-8 px-3 text-xs font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
-          >
-            Pengaturan
-          </Link>
-        </div>
-      ) : null}
-
-      <div className="space-y-6">
-        <section className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-900">
-              1. Jenis Data
-            </h2>
-            <span className="text-xs text-zinc-500">
-              Pilih salah satu template acuan
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {templates.map((tpl) => {
-              const isSelected = tpl.id === selectedTemplateId;
-              const hasColumns = tpl.columns.length > 0;
-
-              return (
-                <div
-                  key={tpl.id}
-                  onClick={() => handleTemplateChange(tpl.id)}
-                  className={`p-4 rounded-lg border text-left cursor-pointer transition-all ${
-                    isSelected
-                      ? "border-indigo-600 ring-1 ring-indigo-600 bg-white"
-                      : "border-zinc-200 bg-white hover:border-zinc-300"
-                  }`}
-                >
-                  <p className="text-sm font-medium text-zinc-900">
-                    {tpl.name}
-                  </p>
-                  <p className="mt-1 text-xs text-zinc-500 leading-normal">
-                    {hasColumns ? `CSV` : "CSV atau Parquet"}
-                  </p>
-                  {hasColumns ? (
-                    <div className="mt-3 pt-2 border-t border-zinc-100 flex items-center">
-                      <a
-                        href={`/api/templates/${tpl.id}`}
-                        download={`${tpl.id}.csv`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800"
-                      >
-                        <Download className="w-3 h-3" />
-                        Unduh template
-                      </a>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 space-y-3">
-          <h2 className="text-sm font-semibold text-zinc-900">2. Berkas</h2>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={
-              selectedTemplate.kind === "csv-or-parquet"
-                ? ".csv,.parquet"
-                : ".csv"
-            }
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                handleFileSelect(e.target.files[0]);
-              }
-            }}
-          />
-
-          {!file ? (
-            <div
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 sm:p-10 text-center cursor-pointer transition-colors ${
-                isDragOver
-                  ? "border-indigo-600 bg-indigo-50/20"
-                  : "border-zinc-200 hover:border-zinc-300 bg-zinc-50/50"
-              }`}
-            >
-              <div className="w-10 h-10 mx-auto mb-3 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-600">
-                <UploadCloud className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-medium text-zinc-900">
-                Tarik berkas ke sini atau klik untuk memilih
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Format yang diterima:{" "}
-                {selectedTemplate.kind === "csv-or-parquet"
-                  ? ".csv atau .parquet"
-                  : ".csv"}
-              </p>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="flex-1">
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => handleTemplateChange(e.target.value)}
+                className="w-full h-10 px-3 text-sm bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              >
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name} ({tpl.columns.length} kolom)
+                  </option>
+                ))}
+              </select>
             </div>
-          ) : (
-            <div className="flex items-center justify-between p-4 border border-zinc-200 bg-zinc-50/50 rounded-lg">
-              <div className="flex items-center gap-3 min-w-0">
-                <FileSpreadsheet className="w-5 h-5 text-indigo-600 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-900 truncate">
-                    {file.name}
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {formatFileSize(file.size)}
-                  </p>
-                </div>
-              </div>
+            {selectedTemplate && (
               <Button
                 type="button"
-                variant="ghost"
-                onClick={handleRemoveFile}
-                className="text-xs text-zinc-500 hover:text-zinc-900 h-8 px-2"
+                variant="secondary"
+                onClick={() => handleDownloadTemplate(selectedTemplate.id)}
               >
-                <X className="w-4 h-4 mr-1" />
-                Hapus
+                <Download className="w-4 h-4 mr-1.5 inline" />
+                Unduh template
               </Button>
-            </div>
-          )}
-        </section>
+            )}
+          </div>
+        )}
+      </section>
 
-        {isValidating ? (
-          <section className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-sm text-zinc-500">
-            Sedang memvalidasi berkas...
-          </section>
-        ) : uploadSuccess ? (
-          <section className="bg-white border border-zinc-200 rounded-xl p-6 sm:p-8 space-y-5">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
-              <div>
-                <h3 className="text-base font-semibold text-zinc-900">
-                  Berkas terkirim ke Volume
-                </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  Ukuran: {formatFileSize(uploadSuccess.size)}
-                </p>
+      {/* 2. File dropzone */}
+      <section className="space-y-3">
+        <label className="block text-sm font-semibold text-zinc-900">
+          File
+        </label>
+
+        {uploadedPath ? (
+          <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-6 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="text-base font-semibold text-emerald-950">
+                File Berhasil Terkirim ke Databricks
+              </div>
+              <div className="text-xs font-mono text-emerald-800 mt-2 break-all bg-white/80 p-3 rounded-lg border border-emerald-200 inline-block text-left">
+                {uploadedPath}
               </div>
             </div>
-
-            <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-lg space-y-1">
-              <p className="text-xs font-medium text-zinc-600">
-                Lokasi Volume Databricks:
-              </p>
-              <p className="font-mono text-xs text-zinc-800 break-all select-all">
-                {uploadSuccess.path}
-              </p>
-            </div>
-
-            <Callout type="info">
-              Berkas tersimpan tanpa modifikasi untuk diproses pipeline
-              Databricks.
-            </Callout>
-
             <div className="pt-2">
-              <Button type="button" variant="primary" onClick={handleResetForm}>
-                Unggah berkas lain
+              <Button variant="primary" onClick={resetUploadState}>
+                Unggah file lain
               </Button>
             </div>
-          </section>
-        ) : validationResult && file ? (
-          <section className="bg-white border border-zinc-200 rounded-xl p-5 sm:p-6 space-y-5">
-            <h2 className="text-sm font-semibold text-zinc-900">
-              3. Hasil Validasi
-            </h2>
-
-            {uploadError ? <Callout type="error">{uploadError}</Callout> : null}
-
-            {validationResult.ok ? (
-              <div className="space-y-4">
-                <Callout type="success" title="Berkas valid">
-                  <div className="space-y-1">
-                    <p>
-                      {validationResult.summary.rowCount} baris data •{" "}
-                      {validationResult.summary.columnCount} kolom • Pemisah
-                      &apos;
-                      {validationResult.summary.detectedDelimiter}&apos;
-                    </p>
-                    {validationResult.warnings.length > 0 ? (
-                      <p className="text-xs text-amber-800 pt-1">
-                        Peringatan: {validationResult.warnings.length} catatan
-                        ditemukan.
-                      </p>
-                    ) : null}
-                  </div>
-                </Callout>
-
-                <div className="pt-2 space-y-2">
-                  <Button
-                    type="button"
-                    variant="primary"
-                    isLoading={isUploading}
-                    disabled={!isConfigured}
-                    onClick={handleSendToDatabricks}
-                  >
-                    Kirim ke Databricks
-                  </Button>
-
-                  {previewDestination ? (
-                    <p className="text-xs font-mono text-zinc-500 break-all">
-                      Destinasi target: {previewDestination}
-                    </p>
-                  ) : null}
+          </div>
+        ) : !file ? (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+              isDragOver
+                ? "border-indigo-500 bg-indigo-50/30"
+                : "border-zinc-300 hover:border-zinc-400 bg-white"
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.parquet"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  handleFileSelect(e.target.files[0]);
+                }
+              }}
+            />
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <UploadCloud
+                className={`w-8 h-8 ${
+                  isDragOver ? "text-indigo-600" : "text-zinc-400"
+                }`}
+              />
+              <div className="text-sm font-medium text-zinc-700">
+                Pilih atau seret berkas ke sini
+              </div>
+              <div className="text-xs text-zinc-400">
+                Format yang diterima: .csv atau .parquet (maksimal{" "}
+                {settings?.maxFileSizeMb ?? 100} MB)
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="border border-zinc-200 bg-white rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center space-x-3 truncate">
+              <div className="w-9 h-9 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div className="truncate">
+                <div className="text-sm font-medium text-zinc-900 truncate">
+                  {file.name}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {formatFileSize(file.size)}
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <Callout
-                  type="error"
-                  title={`${validationResult.summary.totalErrors} kesalahan pada berkas`}
-                >
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {Object.entries(validationResult.summary.issueCounts).map(
-                      ([code, count]) => (
-                        <span
-                          key={code}
-                          className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded text-[11px] font-mono"
-                        >
-                          {code}: {count}
-                        </span>
-                      ),
-                    )}
-                  </div>
-                </Callout>
+            </div>
+            <button
+              type="button"
+              onClick={resetUploadState}
+              className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md hover:bg-zinc-100"
+              title="Hapus berkas"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </section>
 
-                <div className="border border-zinc-200 rounded-lg overflow-hidden">
-                  <div className="max-h-80 overflow-y-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-700 sticky top-0 font-medium">
-                        <tr>
-                          <th className="px-3.5 py-2 w-16">Baris</th>
-                          <th className="px-3.5 py-2 w-44">Kolom</th>
-                          <th className="px-3.5 py-2 w-32">Nilai</th>
-                          <th className="px-3.5 py-2">Masalah</th>
+      {/* 3. Hasil Validasi & Pengiriman */}
+      {file && !uploadedPath && (
+        <section className="space-y-4">
+          <label className="block text-sm font-semibold text-zinc-900">
+            Hasil Validasi
+          </label>
+
+          {isValidating && (
+            <div className="border border-zinc-200 bg-white rounded-xl p-6 text-center text-sm text-zinc-500">
+              Memvalidasi berkas...
+            </div>
+          )}
+
+          {!isValidating && validationResult && (
+            <div className="space-y-4">
+              {validationResult.ok ? (
+                <div className="border border-emerald-200 bg-emerald-50/30 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-emerald-950">
+                        Berkas valid dan siap dikirim
+                      </div>
+                      <div className="text-xs text-emerald-800">
+                        Total {validationResult.summary.rowCount.toLocaleString("id-ID")} baris data,{" "}
+                        {validationResult.summary.columnCount} kolom
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="border border-rose-200 bg-rose-50/30 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-rose-950">
+                        Ditemukan {validationResult.summary.totalErrors} kesalahan pada berkas
+                      </div>
+                      <div className="text-xs text-rose-800">
+                        Perbaiki kesalahan di bawah ini sebelum mengirim berkas.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Rangkuman Isu per Aturan / Code */}
+              {Object.keys(validationResult.summary.issueCounts).length > 0 && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {Object.entries(validationResult.summary.issueCounts).map(([code, count]) => (
+                    <span
+                      key={code}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 text-zinc-700 rounded-md border border-zinc-200"
+                    >
+                      <span className="font-mono font-medium">{code}</span>: {count}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Tabel error 50 pertama */}
+              {!validationResult.ok && validationResult.errors.length > 0 && (
+                <div className="border border-zinc-200 bg-white rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto max-h-80">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead className="bg-zinc-50 border-b border-zinc-200 sticky top-0">
+                        <tr className="text-zinc-600">
+                          <th className="py-2 px-3 font-semibold">Baris</th>
+                          <th className="py-2 px-3 font-semibold">Kolom</th>
+                          <th className="py-2 px-3 font-semibold">Nilai</th>
+                          <th className="py-2 px-3 font-semibold">Masalah</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-100 bg-white">
-                        {validationResult.errors
-                          .slice(0, 50)
-                          .map((err: ValidationIssue, idx: number) => (
-                            <tr key={idx} className="hover:bg-zinc-50/50">
-                              <td className="px-3.5 py-2 font-mono text-zinc-600">
-                                {err.line ?? "-"}
-                              </td>
-                              <td className="px-3.5 py-2 font-mono text-zinc-900">
-                                {err.column ?? "-"}
-                              </td>
-                              <td className="px-3.5 py-2 font-mono text-zinc-500 truncate max-w-[120px]">
-                                {err.value ?? "-"}
-                              </td>
-                              <td className="px-3.5 py-2 text-rose-700">
-                                {err.message}
-                              </td>
-                            </tr>
-                          ))}
+                      <tbody className="divide-y divide-zinc-200">
+                        {validationResult.errors.slice(0, 50).map((err, idx) => (
+                          <tr key={idx} className="hover:bg-zinc-50">
+                            <td className="py-2 px-3 font-mono text-zinc-500">
+                              {err.line ?? "-"}
+                            </td>
+                            <td className="py-2 px-3 font-mono text-zinc-700">
+                              {err.column ?? "-"}
+                            </td>
+                            <td className="py-2 px-3 font-mono text-zinc-600 max-w-44 truncate">
+                              {err.value ?? "-"}
+                            </td>
+                            <td className="py-2 px-3 text-rose-600">
+                              {err.message}
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
-
-                  {validationResult.errors.length > 50 ? (
+                  {validationResult.summary.totalErrors > 50 && (
                     <div className="p-2.5 bg-zinc-50 border-t border-zinc-200 text-center text-xs text-zinc-500">
-                      Menampilkan 50 dari {validationResult.summary.totalErrors}{" "}
-                      kesalahan.
+                      Menampilkan 50 dari {validationResult.summary.totalErrors} kesalahan.
                     </div>
-                  ) : null}
+                  )}
                 </div>
+              )}
 
-                <div className="pt-2">
-                  <Button type="button" variant="primary" disabled>
-                    Kirim ke Databricks
-                  </Button>
-                </div>
+              {/* Tombol aksi kirim */}
+              <div className="pt-2">
+                <Button
+                  variant="primary"
+                  disabled={
+                    !validationResult.ok ||
+                    !isSettingsConfigured ||
+                    isUploading
+                  }
+                  isLoading={isUploading}
+                  onClick={handleUpload}
+                >
+                  Kirim ke Databricks
+                </Button>
+                {destinationPath && validationResult.ok && (
+                  <div className="mt-2 text-xs text-zinc-500 font-mono break-all">
+                    Tujuan: {destinationPath}
+                  </div>
+                )}
               </div>
-            )}
-          </section>
-        ) : null}
-      </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

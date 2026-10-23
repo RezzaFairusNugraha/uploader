@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { createDatabricksClient } from "@/lib/databricks";
 import { readDecryptedSettings } from "@/lib/settings";
-import { getTemplateById } from "@/lib/templates";
+import {
+  templateRepository,
+  type TemplateDefinition,
+} from "@/lib/templates";
 import {
   buildDestinationFileName,
   buildVolumePath,
-  getDestinationSubfolder,
 } from "@/lib/upload/filename";
-import { validateFile } from "@/lib/validation";
+import { uploadLogRepository } from "@/lib/upload/log";
+import {
+  validateFile,
+  type ValidationInput,
+  type ValidationTemplateTarget,
+} from "@/lib/validation";
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +37,45 @@ export async function POST(request: Request) {
       );
     }
 
-    const template = getTemplateById(templateId);
+    let template: TemplateDefinition | ValidationTemplateTarget | null = null;
+    const dynamicTemplate = await templateRepository.get(templateId);
+    if (dynamicTemplate) {
+      template = dynamicTemplate;
+    }
+
+    if (!template) {
+      const bySlug = await templateRepository.getBySlug(templateId);
+      if (bySlug) {
+        template = bySlug;
+      }
+    }
+
+    if (!template) {
+      const {
+        targetBrandDistributionTemplate,
+        hariBesarTemplate,
+        dataResearchTemplate,
+      } = await import("@/lib/templates");
+      const fixtures = [
+        targetBrandDistributionTemplate,
+        hariBesarTemplate,
+        dataResearchTemplate,
+      ];
+      const matched = fixtures.find((f) => f.id === templateId);
+      if (matched) {
+        template = {
+          id: matched.id,
+          name: matched.name,
+          delimiter: matched.delimiter,
+          columns: matched.columns.map((c) => ({
+            name: c.name,
+            required: c.required,
+            rule: c.rule as unknown as import("@/lib/templates/schema").ColumnRule,
+          })),
+        };
+      }
+    }
+
     if (!template) {
       return NextResponse.json(
         { error: "Template tidak ditemukan" },
@@ -38,32 +83,44 @@ export async function POST(request: Request) {
       );
     }
 
-    const fileName = file instanceof File ? file.name : "upload.csv";
-    const lowerName = fileName.toLowerCase();
-    const isParquet = lowerName.endsWith(".parquet");
-
-    if (isParquet && template.kind !== "csv-or-parquet") {
+    if ("status" in template && template.status !== "aktif") {
       return NextResponse.json(
-        {
-          error:
-            "Format Parquet hanya diizinkan untuk template Data Research",
-        },
+        { error: "Template belum aktif atau telah diarsipkan" },
         { status: 400 }
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+    const fileName = file instanceof File ? file.name : "upload.csv";
+    const lowerName = fileName.toLowerCase();
+    const isParquet = lowerName.endsWith(".parquet");
 
-    const validationResult = validateFile(
-      {
-        name: fileName,
-        size: bytes.length,
-        bytes,
-      },
-      template,
-      { maxFileSizeMb: settings.maxFileSizeMb }
-    );
+    const maxBytes = settings.maxFileSizeMb * 1024 * 1024;
+    if (file.size > maxBytes) {
+      const limitMb = settings.maxFileSizeMb;
+      return NextResponse.json(
+        {
+          error: `Ukuran berkas melebihi batas maksimum (${limitMb} MB)`,
+          errors: [
+            {
+              code: "FILE_TOO_LARGE",
+              level: "error",
+              message: `Ukuran berkas (${(file.size / (1024 * 1024)).toFixed(
+                2
+              )} MB) melebihi batas yang diizinkan (${limitMb} MB)`,
+            },
+          ],
+        },
+        { status: 422 }
+      );
+    }
+
+    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const validationInput: ValidationInput = {
+      name: fileName,
+      size: fileBytes.length,
+      bytes: fileBytes,
+    };
+    const validationResult = await validateFile(validationInput, template);
 
     if (!validationResult.ok) {
       return NextResponse.json(
@@ -77,42 +134,83 @@ export async function POST(request: Request) {
       );
     }
 
-    const destFileName = buildDestinationFileName(template.id, fileName);
-    const subfolder = getDestinationSubfolder(
-      fileName,
-      settings.subfolderCsv,
-      settings.subfolderParquet
+    const subfolder = isParquet ? "parquet" : "csv";
+    const templateSlug =
+      ("slug" in template && template.slug) || template.id || "default_slug";
+    const destinationFileName = buildDestinationFileName(
+      templateSlug,
+      fileName
     );
-    const fullPath = buildVolumePath(
-      settings.catalog,
-      settings.schema,
-      settings.volume,
+    const catalog = template.volume?.catalog || settings.catalog;
+    const schema = template.volume?.schema || settings.schema;
+    const volumeName = template.volume?.name || templateSlug;
+
+    const destinationPath = buildVolumePath(
+      catalog,
+      schema,
+      volumeName,
       subfolder,
-      destFileName
+      destinationFileName
     );
 
     const client = createDatabricksClient(
       settings.workspaceUrl,
       settings.token
     );
-    const uploadResult = await client.uploadFile(fullPath, bytes);
 
-    if (!uploadResult.success) {
+    const putRes = await client.uploadFile(destinationPath, fileBytes);
+    if (!putRes.success) {
+      if (template.id) {
+        await uploadLogRepository
+          .insert({
+            templateId: template.id,
+            originalName: fileName,
+            storedName: destinationFileName,
+            sizeBytes: fileBytes.length,
+            format: isParquet ? "parquet" : "csv",
+            destinationPath,
+            status: "gagal",
+            rowCount: validationResult.summary.rowCount,
+            errorMessage: putRes.error || "Gagal mengunggah berkas ke Databricks",
+          })
+          .catch(() => {});
+      }
       return NextResponse.json(
-        { error: uploadResult.error || "Gagal meneruskan berkas ke Volume" },
-        { status: uploadResult.status || 502 }
+        { error: putRes.error || "Gagal mengunggah berkas ke Databricks" },
+        { status: putRes.status || 500 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      path: fullPath,
-      size: bytes.length,
-      fileName: destFileName,
-    });
-  } catch (error) {
+    if (template.id) {
+      await uploadLogRepository
+        .insert({
+          templateId: template.id,
+          originalName: fileName,
+          storedName: destinationFileName,
+          sizeBytes: fileBytes.length,
+          format: isParquet ? "parquet" : "csv",
+          destinationPath,
+          status: "berhasil",
+          rowCount: validationResult.summary.rowCount,
+        })
+        .catch(() => {});
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        path: destinationPath,
+        destinationPath,
+        fileName: destinationFileName,
+        subfolder,
+        size: fileBytes.length,
+        summary: validationResult.summary,
+      },
+      { status: 200 }
+    );
+  } catch (err: unknown) {
     const message =
-      error instanceof Error ? error.message : "Terjadi kesalahan server";
+      err instanceof Error ? err.message : "Terjadi kesalahan saat mengunggah";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
