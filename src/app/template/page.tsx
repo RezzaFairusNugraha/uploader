@@ -9,6 +9,11 @@ import { notify } from "@/lib/notify";
 import type { TemplateDefinition, TemplateStatus } from "@/lib/templates";
 
 const statusLabel: Record<TemplateStatus, { text: string; bg: string; color: string }> = {
+  draf: {
+    text: "Draf",
+    bg: "bg-slate-100",
+    color: "text-slate-700 border-slate-200",
+  },
   membuat: {
     text: "Membuat",
     bg: "bg-amber-50",

@@ -127,6 +127,8 @@ export const TemplateDefinitionSchema = z
     status: TemplateStatusSchema,
     volume: VolumeConfigSchema,
     version: z.number().int().min(1).default(1),
+    createdBy: z.string().nullable().optional(),
+    updatedBy: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     columns: z.array(ColumnDefinitionSchema),
