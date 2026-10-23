@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { createDb, withDbRetry } from "@/db";
+import { appSettings } from "@/db/schema";
 
 export interface EncryptedData {
   iv: string;
@@ -22,26 +23,14 @@ export interface ConnectionTestResult {
   steps: TestStepResult[];
 }
 
-export interface StoredSettings {
-  workspaceUrl: string;
-  tokenEncrypted: EncryptedData;
-  catalog: string;
-  schema: string;
-  volume: string;
-  subfolderCsv: string;
-  subfolderParquet: string;
-  maxFileSizeMb: number;
-  lastTestResult?: ConnectionTestResult;
-}
-
 export interface DecryptedSettings {
   workspaceUrl: string;
   token: string;
   catalog: string;
   schema: string;
-  volume: string;
-  subfolderCsv: string;
-  subfolderParquet: string;
+  volume?: string;
+  subfolderCsv?: string;
+  subfolderParquet?: string;
   maxFileSizeMb: number;
   lastTestResult?: ConnectionTestResult;
 }
@@ -53,11 +42,27 @@ export interface MaskedSettings {
   tokenMasked: string;
   catalog: string;
   schema: string;
-  volume: string;
-  subfolderCsv: string;
-  subfolderParquet: string;
+  volume?: string;
+  subfolderCsv?: string;
+  subfolderParquet?: string;
   maxFileSizeMb: number;
   lastTestResult?: ConnectionTestResult;
+}
+
+export function getEncryptionKey(): Buffer {
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (!envKey) {
+    throw new Error(
+      "ENCRYPTION_KEY belum dikonfigurasi. Hubungi administrator untuk mengisi kunci enkripsi (32 byte base64)."
+    );
+  }
+  const buf = Buffer.from(envKey, "base64");
+  if (buf.length !== 32) {
+    throw new Error(
+      "ENCRYPTION_KEY tidak valid. Kunci harus memiliki panjang tepat 32 byte dalam format base64."
+    );
+  }
+  return buf;
 }
 
 export function normalizeUrl(rawUrl: string): string {
@@ -123,90 +128,16 @@ export function decryptToken(encrypted: EncryptedData, key: Buffer): string {
   return decrypted.toString("utf8");
 }
 
-function getDefaultDataDir(): string {
-  return process.env.DATA_DIR || path.join(process.cwd(), "data");
+export function serializeEncryptedData(enc: EncryptedData): string {
+  return `${enc.iv}:${enc.tag}:${enc.data}`;
 }
 
-export async function getOrCreateKey(customDir?: string): Promise<Buffer> {
-  const dataDir = customDir || getDefaultDataDir();
-  const keyPath = path.join(dataDir, ".key");
-
-  try {
-    const existing = await fs.readFile(keyPath);
-    if (existing.length === 32) {
-      return existing;
-    }
-  } catch {}
-
-  await fs.mkdir(dataDir, { recursive: true });
-  const newKey = crypto.randomBytes(32);
-  await fs.writeFile(keyPath, newKey, { mode: 0o600 });
-  return newKey;
-}
-
-export async function readRawSettings(
-  customDir?: string
-): Promise<StoredSettings | null> {
-  const dataDir = customDir || getDefaultDataDir();
-  const settingsPath = path.join(dataDir, "settings.json");
-
-  try {
-    const raw = await fs.readFile(settingsPath, "utf8");
-    return JSON.parse(raw) as StoredSettings;
-  } catch {
-    return null;
+export function deserializeEncryptedData(str: string): EncryptedData {
+  const parts = str.split(":");
+  if (parts.length === 3) {
+    return { iv: parts[0], tag: parts[1], data: parts[2] };
   }
-}
-
-export async function readDecryptedSettings(
-  customDir?: string
-): Promise<DecryptedSettings | null> {
-  const stored = await readRawSettings(customDir);
-  if (!stored) {
-    return null;
-  }
-
-  try {
-    const key = await getOrCreateKey(customDir);
-    const token = decryptToken(stored.tokenEncrypted, key);
-
-    return {
-      workspaceUrl: stored.workspaceUrl,
-      token,
-      catalog: stored.catalog,
-      schema: stored.schema,
-      volume: stored.volume,
-      subfolderCsv: stored.subfolderCsv,
-      subfolderParquet: stored.subfolderParquet,
-      maxFileSizeMb: stored.maxFileSizeMb,
-      lastTestResult: stored.lastTestResult,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function readMaskedSettings(
-  customDir?: string
-): Promise<MaskedSettings | null> {
-  const decrypted = await readDecryptedSettings(customDir);
-  if (!decrypted) {
-    return null;
-  }
-
-  return {
-    configured: true,
-    workspaceUrl: decrypted.workspaceUrl,
-    hasToken: Boolean(decrypted.token),
-    tokenMasked: maskToken(decrypted.token),
-    catalog: decrypted.catalog,
-    schema: decrypted.schema,
-    volume: decrypted.volume,
-    subfolderCsv: decrypted.subfolderCsv,
-    subfolderParquet: decrypted.subfolderParquet,
-    maxFileSizeMb: decrypted.maxFileSizeMb,
-    lastTestResult: decrypted.lastTestResult,
-  };
+  return JSON.parse(str);
 }
 
 export const settingsFormSchema = z.object({
@@ -234,21 +165,9 @@ export const settingsFormSchema = z.object({
     .trim()
     .min(1, "Skema wajib diisi")
     .refine(isValidPathSegment, "Skema tidak boleh mengandung '/', '\\', atau '..'"),
-  volume: z
-    .string()
-    .trim()
-    .min(1, "Volume wajib diisi")
-    .refine(isValidPathSegment, "Volume tidak boleh mengandung '/', '\\', atau '..'"),
-  subfolderCsv: z
-    .string()
-    .trim()
-    .default("csv")
-    .refine(isValidPathSegment, "Subfolder CSV tidak boleh mengandung '/', '\\', atau '..'"),
-  subfolderParquet: z
-    .string()
-    .trim()
-    .default("parquet")
-    .refine(isValidPathSegment, "Subfolder Parquet tidak boleh mengandung '/', '\\', atau '..'"),
+  volume: z.string().trim().optional(),
+  subfolderCsv: z.string().trim().optional(),
+  subfolderParquet: z.string().trim().optional(),
   maxFileSizeMb: z.coerce
     .number()
     .int("Batas ukuran file harus berupa bilangan bulat")
@@ -258,73 +177,224 @@ export const settingsFormSchema = z.object({
 
 export type SettingsFormData = z.infer<typeof settingsFormSchema>;
 
-export async function saveSettings(
-  input: SettingsFormData,
-  customDir?: string
-): Promise<MaskedSettings> {
-  const dataDir = customDir || getDefaultDataDir();
-  const existing = await readRawSettings(dataDir);
-  const key = await getOrCreateKey(dataDir);
-  const normalizedWorkspaceUrl = normalizeUrl(input.workspaceUrl);
+export interface SettingsStore {
+  readDecrypted(): Promise<DecryptedSettings | null>;
+  readMasked(): Promise<MaskedSettings | null>;
+  save(input: SettingsFormData): Promise<MaskedSettings>;
+  saveTestResult(result: ConnectionTestResult): Promise<void>;
+}
 
-  let tokenToEncrypt = input.token?.trim() || "";
-  if (!tokenToEncrypt) {
-    if (existing) {
-      tokenToEncrypt = decryptToken(existing.tokenEncrypted, key);
-    } else {
-      throw new Error("Personal Access Token wajib diisi");
+export class DrizzleSettingsStore implements SettingsStore {
+  private lastTestResultMemory?: ConnectionTestResult;
+
+  async readDecrypted(): Promise<DecryptedSettings | null> {
+    try {
+      const db = createDb();
+      const rows = await withDbRetry(() =>
+        db.select().from(appSettings).where(eq(appSettings.id, 1)).limit(1)
+      );
+
+      if (rows.length === 0) {
+        return null;
+      }
+
+      const row = rows[0];
+      const key = getEncryptionKey();
+      const encData = deserializeEncryptedData(row.tokenEncrypted);
+      const token = decryptToken(encData, key);
+
+      return {
+        workspaceUrl: row.workspaceUrl,
+        token,
+        catalog: row.catalog,
+        schema: row.schema,
+        maxFileSizeMb: row.maxUploadMb,
+        lastTestResult: this.lastTestResultMemory,
+      };
+    } catch {
+      return null;
     }
   }
 
-  const tokenEncrypted = encryptToken(tokenToEncrypt, key);
-  const stored: StoredSettings = {
-    workspaceUrl: normalizedWorkspaceUrl,
-    tokenEncrypted,
-    catalog: input.catalog,
-    schema: input.schema,
-    volume: input.volume,
-    subfolderCsv: input.subfolderCsv || "csv",
-    subfolderParquet: input.subfolderParquet || "parquet",
-    maxFileSizeMb: input.maxFileSizeMb || 100,
-    lastTestResult: existing?.lastTestResult,
-  };
+  async readMasked(): Promise<MaskedSettings | null> {
+    const decrypted = await this.readDecrypted();
+    if (!decrypted) {
+      return null;
+    }
 
-  await fs.mkdir(dataDir, { recursive: true });
-  await fs.writeFile(
-    path.join(dataDir, "settings.json"),
-    JSON.stringify(stored, null, 2),
-    "utf8"
-  );
-
-  return {
-    configured: true,
-    workspaceUrl: stored.workspaceUrl,
-    hasToken: true,
-    tokenMasked: maskToken(tokenToEncrypt),
-    catalog: stored.catalog,
-    schema: stored.schema,
-    volume: stored.volume,
-    subfolderCsv: stored.subfolderCsv,
-    subfolderParquet: stored.subfolderParquet,
-    maxFileSizeMb: stored.maxFileSizeMb,
-    lastTestResult: stored.lastTestResult,
-  };
-}
-
-export async function saveTestResult(
-  result: ConnectionTestResult,
-  customDir?: string
-): Promise<void> {
-  const dataDir = customDir || getDefaultDataDir();
-  const existing = await readRawSettings(dataDir);
-  if (!existing) {
-    return;
+    return {
+      configured: true,
+      workspaceUrl: decrypted.workspaceUrl,
+      hasToken: Boolean(decrypted.token),
+      tokenMasked: maskToken(decrypted.token),
+      catalog: decrypted.catalog,
+      schema: decrypted.schema,
+      maxFileSizeMb: decrypted.maxFileSizeMb,
+      lastTestResult: decrypted.lastTestResult,
+    };
   }
 
-  existing.lastTestResult = result;
-  await fs.writeFile(
-    path.join(dataDir, "settings.json"),
-    JSON.stringify(existing, null, 2),
-    "utf8"
-  );
+  async save(input: SettingsFormData): Promise<MaskedSettings> {
+    const existing = await this.readDecrypted();
+    const key = getEncryptionKey();
+    const normalizedWorkspaceUrl = normalizeUrl(input.workspaceUrl);
+
+    let tokenToEncrypt = input.token?.trim() || "";
+    if (!tokenToEncrypt) {
+      if (existing) {
+        tokenToEncrypt = existing.token;
+      } else {
+        throw new Error("Personal Access Token wajib diisi");
+      }
+    }
+
+    const encrypted = encryptToken(tokenToEncrypt, key);
+    const serializedToken = serializeEncryptedData(encrypted);
+    const db = createDb();
+
+    await withDbRetry(() =>
+      db
+        .insert(appSettings)
+        .values({
+          id: 1,
+          workspaceUrl: normalizedWorkspaceUrl,
+          tokenEncrypted: serializedToken,
+          catalog: input.catalog,
+          schema: input.schema,
+          maxUploadMb: input.maxFileSizeMb || 100,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: appSettings.id,
+          set: {
+            workspaceUrl: normalizedWorkspaceUrl,
+            tokenEncrypted: serializedToken,
+            catalog: input.catalog,
+            schema: input.schema,
+            maxUploadMb: input.maxFileSizeMb || 100,
+            updatedAt: new Date(),
+          },
+        })
+    );
+
+    return {
+      configured: true,
+      workspaceUrl: normalizedWorkspaceUrl,
+      hasToken: true,
+      tokenMasked: maskToken(tokenToEncrypt),
+      catalog: input.catalog,
+      schema: input.schema,
+      maxFileSizeMb: input.maxFileSizeMb || 100,
+      lastTestResult: this.lastTestResultMemory,
+    };
+  }
+
+  async saveTestResult(result: ConnectionTestResult): Promise<void> {
+    this.lastTestResultMemory = result;
+  }
+}
+
+export class FakeInMemorySettingsStore implements SettingsStore {
+  private stored: {
+    workspaceUrl: string;
+    tokenEncrypted: EncryptedData;
+    catalog: string;
+    schema: string;
+    maxUploadMb: number;
+    lastTestResult?: ConnectionTestResult;
+  } | null = null;
+
+  private customKey?: Buffer;
+
+  constructor(customKey?: Buffer) {
+    this.customKey = customKey;
+  }
+
+  private getKey(): Buffer {
+    if (this.customKey) return this.customKey;
+    return getEncryptionKey();
+  }
+
+  async readDecrypted(): Promise<DecryptedSettings | null> {
+    if (!this.stored) return null;
+    const token = decryptToken(this.stored.tokenEncrypted, this.getKey());
+    return {
+      workspaceUrl: this.stored.workspaceUrl,
+      token,
+      catalog: this.stored.catalog,
+      schema: this.stored.schema,
+      maxFileSizeMb: this.stored.maxUploadMb,
+      lastTestResult: this.stored.lastTestResult,
+    };
+  }
+
+  async readMasked(): Promise<MaskedSettings | null> {
+    const decrypted = await this.readDecrypted();
+    if (!decrypted) return null;
+    return {
+      configured: true,
+      workspaceUrl: decrypted.workspaceUrl,
+      hasToken: Boolean(decrypted.token),
+      tokenMasked: maskToken(decrypted.token),
+      catalog: decrypted.catalog,
+      schema: decrypted.schema,
+      maxFileSizeMb: decrypted.maxFileSizeMb,
+      lastTestResult: decrypted.lastTestResult,
+    };
+  }
+
+  async save(input: SettingsFormData): Promise<MaskedSettings> {
+    let token = input.token?.trim() || "";
+    if (!token) {
+      if (this.stored) {
+        token = decryptToken(this.stored.tokenEncrypted, this.getKey());
+      } else {
+        throw new Error("Personal Access Token wajib diisi");
+      }
+    }
+
+    const tokenEncrypted = encryptToken(token, this.getKey());
+    this.stored = {
+      workspaceUrl: normalizeUrl(input.workspaceUrl),
+      tokenEncrypted,
+      catalog: input.catalog,
+      schema: input.schema,
+      maxUploadMb: input.maxFileSizeMb || 100,
+      lastTestResult: this.stored?.lastTestResult,
+    };
+
+    return (await this.readMasked())!;
+  }
+
+  async saveTestResult(result: ConnectionTestResult): Promise<void> {
+    if (this.stored) {
+      this.stored.lastTestResult = result;
+    }
+  }
+}
+
+let activeStore: SettingsStore = new DrizzleSettingsStore();
+
+export function setSettingsStore(store: SettingsStore): void {
+  activeStore = store;
+}
+
+export function getSettingsStore(): SettingsStore {
+  return activeStore;
+}
+
+export async function readDecryptedSettings(): Promise<DecryptedSettings | null> {
+  return getSettingsStore().readDecrypted();
+}
+
+export async function readMaskedSettings(): Promise<MaskedSettings | null> {
+  return getSettingsStore().readMasked();
+}
+
+export async function saveSettings(input: SettingsFormData): Promise<MaskedSettings> {
+  return getSettingsStore().save(input);
+}
+
+export async function saveTestResult(result: ConnectionTestResult): Promise<void> {
+  return getSettingsStore().saveTestResult(result);
 }

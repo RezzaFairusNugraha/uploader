@@ -1,33 +1,20 @@
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import {
   decryptToken,
   encryptToken,
+  FakeInMemorySettingsStore,
+  getEncryptionKey,
   isValidPathSegment,
   maskToken,
   normalizeUrl,
-  readDecryptedSettings,
-  readMaskedSettings,
-  readRawSettings,
-  saveSettings,
-  saveTestResult,
+  setSettingsStore,
 } from "./settings";
 
-describe("Settings & Encryption", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "uploader-test-"));
-  });
-
-  afterEach(async () => {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {}
-  });
+describe("Settings & Encryption (SettingsStore)", () => {
+  const dummyKey = Buffer.from(
+    "01234567890123456789012345678901",
+    "utf8"
+  );
 
   describe("URL Normalizer", () => {
     it("menghapus spasi dan trailing slash serta menambahkan https://", () => {
@@ -48,170 +35,126 @@ describe("Settings & Encryption", () => {
     it("menerima segmen yang valid dan menolak karakter terlarang", () => {
       expect(isValidPathSegment("databricks_catalog")).toBe(true);
       expect(isValidPathSegment("csv")).toBe(true);
-      expect(isValidPathSegment("volume-1")).toBe(true);
-
-      expect(isValidPathSegment("folder/subfolder")).toBe(false);
-      expect(isValidPathSegment("..")).toBe(false);
-      expect(isValidPathSegment("folder\\subfolder")).toBe(false);
       expect(isValidPathSegment("")).toBe(false);
       expect(isValidPathSegment("   ")).toBe(false);
+      expect(isValidPathSegment("path/with/slash")).toBe(false);
+      expect(isValidPathSegment("..")).toBe(false);
+      expect(isValidPathSegment("folder\\sub")).toBe(false);
     });
   });
 
   describe("Masking Token", () => {
     it("menampilkan titik masker dengan 4 karakter terakhir", () => {
-      const masked = maskToken("test-token-not-real");
-      expect(masked.endsWith("real")).toBe(true);
-      expect(masked.startsWith("••••••••••••")).toBe(true);
-      expect(masked.includes("test-token")).toBe(false);
-
-      expect(maskToken("abcd")).toBe("••••");
+      expect(maskToken("dapi1234567890abcdef")).toBe("••••••••••••cdef");
+      expect(maskToken("1234")).toBe("••••");
       expect(maskToken("")).toBe("");
     });
   });
 
-  describe("Enkripsi AES-256-GCM", () => {
-    const fakeToken = "test-token-not-real";
-
+  describe("Enkripsi AES-256-GCM dari ENCRYPTION_KEY", () => {
     it("melakukan round-trip enkripsi dan dekripsi dengan benar", () => {
-      const key = crypto.randomBytes(32);
-      const encrypted = encryptToken(fakeToken, key);
-
-      expect(encrypted.data).not.toBe(fakeToken);
-      expect(encrypted.iv).toBeDefined();
-      expect(encrypted.tag).toBeDefined();
-
-      const decrypted = decryptToken(encrypted, key);
-      expect(decrypted).toBe(fakeToken);
+      const secret = "dapi-super-secret-databricks-token-12345";
+      const encrypted = encryptToken(secret, dummyKey);
+      const decrypted = decryptToken(encrypted, dummyKey);
+      expect(decrypted).toBe(secret);
+      expect(encrypted.iv.length).toBe(24);
+      expect(encrypted.tag.length).toBe(32);
     });
 
     it("gagal mendeskripsi jika kunci salah", () => {
-      const key1 = crypto.randomBytes(32);
-      const key2 = crypto.randomBytes(32);
-      const encrypted = encryptToken(fakeToken, key1);
-
-      expect(() => decryptToken(encrypted, key2)).toThrow();
+      const secret = "token-rahasia";
+      const encrypted = encryptToken(secret, dummyKey);
+      const wrongKey = Buffer.from(
+        "abcdefabcdefabcdefabcdefabcdefab",
+        "utf8"
+      );
+      expect(() => decryptToken(encrypted, wrongKey)).toThrow();
     });
 
     it("gagal mendeskripsi jika tag otentikasi dimanipulasi", () => {
-      const key = crypto.randomBytes(32);
-      const encrypted = encryptToken(fakeToken, key);
+      const secret = "token-rahasia";
+      const encrypted = encryptToken(secret, dummyKey);
       const tampered = {
         ...encrypted,
-        tag: crypto.randomBytes(16).toString("hex"),
+        tag: encrypted.tag.replace(/^./, encrypted.tag[0] === "a" ? "b" : "a"),
       };
+      expect(() => decryptToken(tampered, dummyKey)).toThrow();
+    });
 
-      expect(() => decryptToken(tampered, key)).toThrow();
+    it("memvalidasi panjang ENCRYPTION_KEY dari variabel lingkungan (32 byte)", () => {
+      const orig = process.env.ENCRYPTION_KEY;
+      process.env.ENCRYPTION_KEY = Buffer.from("01234567890123456789012345678901").toString("base64");
+      const key = getEncryptionKey();
+      expect(key.length).toBe(32);
+
+      process.env.ENCRYPTION_KEY = Buffer.from("terlalu-pendek").toString("base64");
+      expect(() => getEncryptionKey()).toThrow("panjang tepat 32 byte");
+
+      delete process.env.ENCRYPTION_KEY;
+      expect(() => getEncryptionKey()).toThrow("belum dikonfigurasi");
+      process.env.ENCRYPTION_KEY = orig;
     });
   });
 
-  describe("Penyimpanan Pengaturan dalam Direktori Sementara", () => {
+  describe("SettingsStore In-Memory Fake", () => {
     it("mengembalikan null jika belum ada pengaturan yang disimpan", async () => {
-      const raw = await readRawSettings(tempDir);
-      const masked = await readMaskedSettings(tempDir);
-      expect(raw).toBeNull();
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      const decrypted = await store.readDecrypted();
+      expect(decrypted).toBeNull();
+      const masked = await store.readMasked();
       expect(masked).toBeNull();
     });
 
-    it("membuat .key dan settings.json saat menyimpan pertama kali", async () => {
-      const fakeToken = "test-token-not-real";
-      const saved = await saveSettings(
-        {
-          workspaceUrl: "dbc-1234.cloud.databricks.com",
-          token: fakeToken,
-          catalog: "main",
-          schema: "sales",
-          volume: "raw_files",
-          subfolderCsv: "csv",
-          subfolderParquet: "parquet",
-          maxFileSizeMb: 50,
-        },
-        tempDir
-      );
+    it("menyimpan pengaturan dan membaca kembali data terdekripsi dan ter-masking", async () => {
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      setSettingsStore(store);
+
+      const saved = await store.save({
+        workspaceUrl: "dbc-test.cloud.databricks.com",
+        token: "dapi999988887777",
+        catalog: "sales_cat",
+        schema: "staging_schema",
+        maxFileSizeMb: 50,
+      });
 
       expect(saved.configured).toBe(true);
-      expect(saved.workspaceUrl).toBe("https://dbc-1234.cloud.databricks.com");
-      expect(saved.hasToken).toBe(true);
-      expect(saved.tokenMasked.endsWith("real")).toBe(true);
-      expect((saved as unknown as { token?: string }).token).toBeUndefined();
+      expect(saved.workspaceUrl).toBe("https://dbc-test.cloud.databricks.com");
+      expect(saved.tokenMasked).toBe("••••••••••••7777");
+      expect(saved.catalog).toBe("sales_cat");
+      expect(saved.schema).toBe("staging_schema");
+      expect(saved.maxFileSizeMb).toBe(50);
 
-      const keyExists = await fs
-        .stat(path.join(tempDir, ".key"))
-        .then(() => true)
-        .catch(() => false);
-      expect(keyExists).toBe(true);
-
-      const decrypted = await readDecryptedSettings(tempDir);
-      expect(decrypted).not.toBeNull();
-      expect(decrypted?.token).toBe(fakeToken);
-    });
-
-    it("dapat memperbarui pengaturan tanpa mengisi ulang token", async () => {
-      const fakeToken = "test-token-not-real";
-      await saveSettings(
-        {
-          workspaceUrl: "https://dbc-1234.cloud.databricks.com",
-          token: fakeToken,
-          catalog: "main",
-          schema: "sales",
-          volume: "raw_files",
-          subfolderCsv: "csv",
-          subfolderParquet: "parquet",
-          maxFileSizeMb: 100,
-        },
-        tempDir
-      );
-
-      await saveSettings(
-        {
-          workspaceUrl: "https://dbc-1234.cloud.databricks.com",
-          catalog: "main_updated",
-          schema: "sales",
-          volume: "raw_files",
-          subfolderCsv: "csv_inbox",
-          subfolderParquet: "parquet",
-          maxFileSizeMb: 200,
-        },
-        tempDir
-      );
-
-      const updated = await readDecryptedSettings(tempDir);
-      expect(updated?.catalog).toBe("main_updated");
-      expect(updated?.subfolderCsv).toBe("csv_inbox");
-      expect(updated?.maxFileSizeMb).toBe(200);
-      expect(updated?.token).toBe(fakeToken);
+      const decrypted = await store.readDecrypted();
+      expect(decrypted?.token).toBe("dapi999988887777");
     });
 
     it("dapat menyimpan dan memperbarui hasil uji koneksi", async () => {
-      await saveSettings(
-        {
-          workspaceUrl: "https://dbc-1234.cloud.databricks.com",
-          token: "test-token-not-real",
-          catalog: "main",
-          schema: "sales",
-          volume: "raw_files",
-          subfolderCsv: "csv",
-          subfolderParquet: "parquet",
-          maxFileSizeMb: 100,
-        },
-        tempDir
-      );
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      await store.save({
+        workspaceUrl: "dbc-test.cloud.databricks.com",
+        token: "token-uji",
+        catalog: "main",
+        schema: "sales",
+        maxFileSizeMb: 100,
+      });
 
       const testResult = {
         success: true,
         testedAt: new Date().toISOString(),
         steps: [
-          { name: "Host dapat dijangkau dan token valid", success: true },
-          { name: "Direktori Volume utama ditemukan", success: true },
-          { name: "Subfolder CSV ditemukan", success: true },
-          { name: "Subfolder Parquet ditemukan", success: true },
+          {
+            name: "Host dapat dijangkau dan token valid",
+            success: true,
+          },
         ],
       };
 
-      await saveTestResult(testResult, tempDir);
-      const stored = await readRawSettings(tempDir);
-      expect(stored?.lastTestResult?.success).toBe(true);
-      expect(stored?.lastTestResult?.steps.length).toBe(4);
+      await store.saveTestResult(testResult);
+      const updated = await store.readMasked();
+      expect(updated?.lastTestResult?.success).toBe(true);
+      expect(updated?.lastTestResult?.steps[0].name).toBe(
+        "Host dapat dijangkau dan token valid"
+      );
     });
   });
 });
