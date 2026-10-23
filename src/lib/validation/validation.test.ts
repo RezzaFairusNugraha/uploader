@@ -1,15 +1,65 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { describe, expect, it } from "bun:test";
-import {
-  dataResearchTemplate,
-  hariBesarTemplate,
-  targetBrandDistributionTemplate,
-} from "../templates";
+import { parquetWriteBuffer } from "hyparquet-writer";
+import type { TemplateDefinition } from "../templates/schema";
 import { validateFile } from "./index";
 
-describe("Validation Engine", () => {
-  const samplesDir = path.join(process.cwd(), "samples");
+describe("Validation Engine - Dynamic Template Definition", () => {
+  const baseTemplate: TemplateDefinition = {
+    id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    name: "Master Transaksi",
+    slug: "master_transaksi",
+    description: "Template transaksi utama",
+    delimiter: ";",
+    status: "aktif",
+    version: 1,
+    volume: { catalog: "main", schema: "sales", name: "master_transaksi" },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    columns: [
+      {
+        name: "kode_outlet",
+        required: true,
+        rule: { type: "digits", length: 6 },
+      },
+      {
+        name: "jumlah_item",
+        required: true,
+        rule: { type: "integer", min: 1, max: 100 },
+      },
+      {
+        name: "nominal_rupiah",
+        required: true,
+        rule: {
+          type: "decimal",
+          allowComma: true,
+          allowDot: true,
+          allowScientific: true,
+          allowedText: ["FREE_TRIAL", "N/A"],
+          min: 0,
+        },
+      },
+      {
+        name: "tgl_transaksi",
+        required: true,
+        rule: { type: "date", format: "yyyy-MM-dd" },
+      },
+      {
+        name: "status_bayar",
+        required: true,
+        rule: { type: "list", values: ["LUNAS", "PENDING", "BATAL"] },
+      },
+      {
+        name: "catatan",
+        required: false,
+        rule: {
+          type: "text",
+          minLength: 3,
+          maxLength: 50,
+          allowedValues: ["Reguler", "Promo", "Khusus"],
+        },
+      },
+    ],
+  };
 
   const toInput = (name: string, content: string | Uint8Array) => {
     const bytes =
@@ -23,404 +73,350 @@ describe("Validation Engine", () => {
     };
   };
 
-  describe("Uji Berkas Sampel Nyata", () => {
-    it("memvalidasi Target Brand Distribution.csv tanpa error", async () => {
-      const filePath = path.join(
-        samplesDir,
-        "Target Brand Distribution.csv"
+  describe("Aturan Berkas Dasar & Ekstensi", () => {
+    it("menolak berkas Excel .xlsx dengan pesan panduan ramah", async () => {
+      const input = toInput("transaksi.xlsx", "mock");
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("EXCEL_FILE_UPLOADED");
+      expect(res.errors[0].message).toContain("Simpan file sebagai CSV");
+    });
+
+    it("menolak berkas Excel .xls dengan pesan panduan ramah", async () => {
+      const input = toInput("transaksi.xls", "mock");
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("EXCEL_FILE_UPLOADED");
+    });
+
+    it("menolak ekstensi yang tidak didukung", async () => {
+      const input = toInput("transaksi.txt", "mock");
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("INVALID_EXTENSION");
+    });
+
+    it("menolak berkas kosong", async () => {
+      const input = toInput("transaksi.csv", new Uint8Array([]));
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("EMPTY_FILE");
+    });
+
+    it("menolak berkas dengan pengodean UTF-8 yang tidak valid", async () => {
+      const input = toInput("transaksi.csv", new Uint8Array([0xff, 0xfe, 0xff]));
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("INVALID_UTF8");
+    });
+
+    it("memberikan peringatan BOM UTF-8 namun tetap memproses validasi berkas", async () => {
+      const csv =
+        "\uFEFFkode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(true);
+      expect(res.warnings.some((w) => w.code === "BOM_PRESENT")).toBe(true);
+    });
+
+    it("menolak berkas jika delimiter yang terdeteksi tidak sama dengan template", async () => {
+      const csv =
+        "kode_outlet,jumlah_item,nominal_rupiah,tgl_transaksi,status_bayar,catatan\r\n" +
+        "123456,10,50000,2026-05-12,LUNAS,Reguler\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("DELIMITER_MISMATCH");
+    });
+  });
+
+  describe("Struktur Header dan Baris CSV", () => {
+    it("menolak berkas tanpa baris data (hanya header)", async () => {
+      const csv = "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors[0].code).toBe("NO_DATA_ROWS");
+    });
+
+    it("menolak jika ada kolom template yang hilang", async () => {
+      const csv = "kode_outlet;jumlah_item;nominal_rupiah;status_bayar\r\n123456;10;50000;LUNAS\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "MISSING_COLUMN")).toBe(true);
+    });
+
+    it("menolak jika ada kolom asing tambahan yang tidak dikenal", async () => {
+      const csv =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan;kolom_asing\r\n" +
+        "123456;10;50000;2026-05-12;LUNAS;Reguler;extra\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "UNKNOWN_COLUMN")).toBe(true);
+    });
+
+    it("memberikan peringatan ketika urutan kolom berbeda dengan template", async () => {
+      const csv =
+        "jumlah_item;kode_outlet;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "10;123456;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(true);
+      expect(res.warnings.some((w) => w.code === "COLUMN_ORDER_MISMATCH")).toBe(true);
+    });
+
+    it("memberikan peringatan baris kosong dan tidak menganggapnya sebagai error", async () => {
+      const csv =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;2026-05-12;LUNAS;Reguler\r\n" +
+        ";;;;;\r\n" +
+        "654321;20;75000;2026-05-13;PENDING;Promo\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(true);
+      expect(res.warnings.some((w) => w.code === "BLANK_ROW")).toBe(true);
+      expect(res.summary.rowCount).toBe(2);
+    });
+  });
+
+  describe("Validasi Nilai Sel Berdasarkan Jenis Aturan", () => {
+    it("lolos untuk baris data yang memenuhi seluruh aturan", async () => {
+      const csv =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000.50;2026-05-12;LUNAS;Reguler\r\n" +
+        "998877;50;1,75E+04;2026-01-31;PENDING;\r\n" +
+        "112233;99;FREE_TRIAL;2026-12-01;BATAL;Khusus\r\n";
+      const input = toInput("transaksi.csv", csv);
+      const res = await validateFile(input, baseTemplate);
+      expect(res.ok).toBe(true);
+      expect(res.errors.length).toBe(0);
+      expect(res.summary.rowCount).toBe(3);
+    });
+
+    it("rule digits: lolos jika tepat 6 digit, gagal jika kurang atau mengandung huruf", async () => {
+      const failDigits =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "12345;10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const res1 = await validateFile(toInput("fail.csv", failDigits), baseTemplate);
+      expect(res1.ok).toBe(false);
+      expect(res1.errors.some((e) => e.code === "INVALID_DIGITS")).toBe(true);
+
+      const failLetter =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "12345A;10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const res2 = await validateFile(toInput("fail.csv", failLetter), baseTemplate);
+      expect(res2.ok).toBe(false);
+      expect(res2.errors.some((e) => e.code === "INVALID_DIGITS")).toBe(true);
+    });
+
+    it("rule integer: lolos dalam rentang min-max, gagal di luar rentang", async () => {
+      const failRange =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;150;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const res = await validateFile(toInput("fail.csv", failRange), baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "INVALID_INTEGER_RANGE")).toBe(true);
+    });
+
+    it("rule decimal: menerima titik, koma, notasi ilmiah, dan teks khusus", async () => {
+      const validCsv =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;FREE_TRIAL;2026-05-12;LUNAS;Reguler\r\n" +
+        "123456;10;1.25e-3;2026-05-12;LUNAS;Reguler\r\n";
+      const res = await validateFile(toInput("valid.csv", validCsv), baseTemplate);
+      expect(res.ok).toBe(true);
+
+      const failDecimal =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;bukan_angka;2026-05-12;LUNAS;Reguler\r\n";
+      const resFail = await validateFile(toInput("fail.csv", failDecimal), baseTemplate);
+      expect(resFail.ok).toBe(false);
+      expect(resFail.errors.some((e) => e.code === "INVALID_DECIMAL")).toBe(true);
+    });
+
+    it("rule date: lolos format yyyy-MM-dd valid, gagal format tanggal tidak sesuai", async () => {
+      const failDate =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;12/05/2026;LUNAS;Reguler\r\n";
+      const res = await validateFile(toInput("fail.csv", failDate), baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "INVALID_DATE")).toBe(true);
+    });
+
+    it("rule list: lolos jika dalam daftar pilihan, gagal jika nilai di luar daftar", async () => {
+      const failList =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;2026-05-12;HUTANG;Reguler\r\n";
+      const res = await validateFile(toInput("fail.csv", failList), baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "INVALID_LIST_VALUE")).toBe(true);
+    });
+
+    it("rule text: memvalidasi minLength, maxLength, dan allowedValues", async () => {
+      const failLength =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;2026-05-12;LUNAS;ab\r\n";
+      const res1 = await validateFile(toInput("fail.csv", failLength), baseTemplate);
+      expect(res1.ok).toBe(false);
+      expect(res1.errors.some((e) => e.code === "INVALID_TEXT_LENGTH")).toBe(true);
+
+      const failAllowed =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;50000;2026-05-12;LUNAS;VipMember\r\n";
+      const res2 = await validateFile(toInput("fail.csv", failAllowed), baseTemplate);
+      expect(res2.ok).toBe(false);
+      expect(res2.errors.some((e) => e.code === "INVALID_ALLOWED_VALUE")).toBe(true);
+    });
+
+    it("kolom wajib yang kosong ditolak dengan REQUIRED_FIELD_EMPTY", async () => {
+      const failEmpty =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        ";10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const res = await validateFile(toInput("fail.csv", failEmpty), baseTemplate);
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "REQUIRED_FIELD_EMPTY")).toBe(true);
+    });
+  });
+
+  describe("Peringatan Agregat", () => {
+    it("menghasilkan tepat satu warning agregat untuk spasi di awal/akhir per kolom", async () => {
+      let csv = "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n";
+      for (let i = 0; i < 5; i++) {
+        csv += "123456;10;50000;2026-05-12;LUNAS ; Reguler \r\n";
+      }
+      const res = await validateFile(toInput("spaces.csv", csv), baseTemplate);
+      expect(res.ok).toBe(true);
+      const spaceWarnings = res.warnings.filter((w) => w.code === "WHITESPACE_TRIM_WARNING");
+      expect(spaceWarnings.length).toBe(2);
+    });
+
+    it("menghasilkan tepat satu warning agregat saat pemisah titik dan koma bercampur pada kolom desimal", async () => {
+      const csv =
+        "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n" +
+        "123456;10;5000.75;2026-05-12;LUNAS;Reguler\r\n" +
+        "123456;10;5000,25;2026-05-12;LUNAS;Reguler\r\n";
+      const res = await validateFile(toInput("mixed.csv", csv), baseTemplate);
+      expect(res.ok).toBe(true);
+      const mixed = res.warnings.filter((w) => w.code === "MIXED_DECIMAL_SEPARATORS");
+      expect(mixed.length).toBe(1);
+      expect(mixed[0].message).toContain("titik (1 nilai");
+      expect(mixed[0].message).toContain("koma (1 nilai");
+    });
+  });
+
+  describe("Performa Skala Besar (40.000 Baris & Batas 200 Issues)", () => {
+    it("memvalidasi 40.000 baris dalam hitungan detik dan membatasi array issue maksimal 200", async () => {
+      const row = "123456;10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const header = "kode_outlet;jumlah_item;nominal_rupiah;tgl_transaksi;status_bayar;catatan\r\n";
+      const bigCsv = header + row.repeat(40000);
+
+      const start = Date.now();
+      const res = await validateFile(toInput("big.csv", bigCsv), baseTemplate);
+      const elapsed = Date.now() - start;
+
+      expect(res.ok).toBe(true);
+      expect(res.summary.rowCount).toBe(40000);
+      expect(elapsed).toBeLessThan(5000);
+
+      const invalidRow = "99;10;50000;2026-05-12;LUNAS;Reguler\r\n";
+      const invalidBigCsv = header + invalidRow.repeat(500);
+      const resFail = await validateFile(toInput("big_fail.csv", invalidBigCsv), baseTemplate);
+      expect(resFail.ok).toBe(false);
+      expect(resFail.errors.length).toBe(200);
+      expect(resFail.summary.totalErrors).toBe(500);
+    });
+  });
+
+  describe("Validasi Berkas Parquet", () => {
+    it("lolos validasi Parquet yang sesuai struktur schema dan isi sel", async () => {
+      const buf = new Uint8Array(
+        parquetWriteBuffer({
+          columnData: [
+            { name: "kode_outlet", data: ["111222", "333444"] },
+            { name: "jumlah_item", data: [10, 20] },
+            { name: "nominal_rupiah", data: [50000.5, 75000.0] },
+            { name: "tgl_transaksi", data: ["2026-05-12", "2026-05-13"] },
+            { name: "status_bayar", data: ["LUNAS", "PENDING"] },
+            { name: "catatan", data: ["Reguler", "Promo"] },
+          ],
+        })
       );
-      const rawBytes = await fs.readFile(filePath);
-      const input = {
-        name: "Target Brand Distribution.csv",
-        size: rawBytes.length,
-        bytes: new Uint8Array(rawBytes),
-      };
 
-      const result = validateFile(input, targetBrandDistributionTemplate);
-      expect(result.ok).toBe(true);
-      expect(result.errors.length).toBe(0);
-      expect(result.summary.rowCount).toBe(3);
-      expect(result.summary.columnCount).toBe(9);
-      expect(result.summary.detectedDelimiter).toBe(";");
-    });
-
-    it("memvalidasi Hari Besar Contoh.csv tanpa error dan menghasilkan 2 warning baris kosong", async () => {
-      const filePath = path.join(samplesDir, "Hari Besar Contoh.csv");
-      const rawBytes = await fs.readFile(filePath);
-      const input = {
-        name: "Hari Besar Contoh.csv",
-        size: rawBytes.length,
-        bytes: new Uint8Array(rawBytes),
-      };
-
-      const result = validateFile(input, hariBesarTemplate);
-      expect(result.ok).toBe(true);
-      expect(result.errors.length).toBe(0);
-      expect(result.warnings.length).toBe(2);
-      expect(result.warnings.every((w) => w.code === "BLANK_ROW")).toBe(true);
-      expect(result.summary.rowCount).toBe(3);
-    });
-  });
-
-  describe("Uji Kasus Kegagalan Berkas", () => {
-    it("menolak berkas Excel (.xlsx / .xls) dengan pesan khusus", () => {
-      const input = toInput("data.xlsx", "mock");
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].message).toBe(
-        "Simpan file sebagai CSV (pemisah titik koma) lalu unggah lagi."
+      const res = await validateFile(
+        { name: "transaksi.parquet", size: buf.byteLength, bytes: buf },
+        baseTemplate
       );
+      expect(res.ok).toBe(true);
+      expect(res.errors.length).toBe(0);
+      expect(res.summary.rowCount).toBe(2);
     });
 
-    it("menolak berkas dengan ekstensi tidak sesuai", () => {
-      const input = toInput("data.txt", "mock");
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].code).toBe("INVALID_EXTENSION");
-    });
-
-    it("menolak berkas kosong", () => {
-      const input = toInput("data.csv", new Uint8Array([]));
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].code).toBe("EMPTY_FILE");
-    });
-
-    it("menolak berkas dengan pengodean UTF-8 tidak valid", () => {
-      const invalidBytes = new Uint8Array([0xff, 0xfe, 0xff]);
-      const input = toInput("data.csv", invalidBytes);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].code).toBe("INVALID_UTF8");
-    });
-
-    it("menghasilkan peringatan jika terdapat BOM pada berkas UTF-8", () => {
-      const content =
-        "\uFEFFYear;Week;KeteranganHariBesar\r\n2026;1;Tahun baru\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(true);
-      expect(result.warnings.some((w) => w.code === "BOM_PRESENT")).toBe(true);
-    });
-
-    it("menolak berkas yang menggunakan koma saat template membutuhkan titik koma", () => {
-      const content = "Year,Week,KeteranganHariBesar\r\n2026,1,Tahun baru\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].code).toBe("DELIMITER_MISMATCH");
-      expect(result.errors[0].message).toBe(
-        "Pemisah file adalah ',' padahal template memakai ';'"
+    it("gagal validasi Parquet jika ada kolom yang hilang atau tipe tidak kompatibel", async () => {
+      const buf = new Uint8Array(
+        parquetWriteBuffer({
+          columnData: [
+            { name: "kode_outlet", data: ["111222"] },
+            { name: "jumlah_item", data: [10] },
+          ],
+        })
       );
+
+      const res = await validateFile(
+        { name: "transaksi.parquet", size: buf.byteLength, bytes: buf },
+        baseTemplate
+      );
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "MISSING_COLUMN")).toBe(true);
     });
 
-    it("menolak berkas jika hanya berisi header tanpa baris data", () => {
-      const content = "Year;Week;KeteranganHariBesar\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
+    it("gagal jika kolom wajib di Parquet bersifat opsional dan seluruh nilainya null", async () => {
+      const buf = new Uint8Array(
+        parquetWriteBuffer({
+          columnData: [
+            { name: "kode_outlet", data: [null, null] },
+            { name: "jumlah_item", data: [10, 20] },
+            { name: "nominal_rupiah", data: [50000, 75000] },
+            { name: "tgl_transaksi", data: ["2026-05-12", "2026-05-13"] },
+            { name: "status_bayar", data: ["LUNAS", "PENDING"] },
+            { name: "catatan", data: ["Reguler", "Promo"] },
+          ],
+        })
+      );
 
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "NO_DATA_ROWS")).toBe(true);
-    });
-  });
-
-  describe("Uji Struktur Kolom", () => {
-    it("mendeteksi kolom wajib yang hilang", () => {
-      const content = "Year;Week\r\n2026;1\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "MISSING_COLUMN")).toBe(true);
-    });
-
-    it("mendeteksi kolom tambahan yang tidak dikenal", () => {
-      const content =
-        "Year;Week;KeteranganHariBesar;KolomTambahan\r\n2026;1;Libur;Ada\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "UNKNOWN_COLUMN")).toBe(true);
+      const res = await validateFile(
+        { name: "transaksi.parquet", size: buf.byteLength, bytes: buf },
+        baseTemplate
+      );
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => e.code === "REQUIRED_FIELD_ALL_NULL" || e.code === "REQUIRED_FIELD_EMPTY")).toBe(true);
     });
 
-    it("memberikan peringatan jika urutan kolom berbeda dari template", () => {
-      const content =
-        "Week;Year;KeteranganHariBesar\r\n1;2026;Tahun baru\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
+    it("memberikan peringatan 'Isi sel tidak diperiksa untuk file besar' jika ukuran melebihi batas scan", async () => {
+      const buf = new Uint8Array(
+        parquetWriteBuffer({
+          columnData: [
+            { name: "kode_outlet", data: ["111222"] },
+            { name: "jumlah_item", data: [10] },
+            { name: "nominal_rupiah", data: [50000] },
+            { name: "tgl_transaksi", data: ["2026-05-12"] },
+            { name: "status_bayar", data: ["LUNAS"] },
+            { name: "catatan", data: ["Reguler"] },
+          ],
+        })
+      );
 
-      expect(result.ok).toBe(true);
-      expect(
-        result.warnings.some((w) => w.code === "COLUMN_ORDER_MISMATCH")
-      ).toBe(true);
-    });
-
-    it("mendeteksi ketidaksesuaian jumlah kolom pada baris data", () => {
-      const content =
-        "Year;Week;KeteranganHariBesar\r\n2026;1;Libur;EkstraData\r\n";
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, hariBesarTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(
-        result.errors.some((e) => e.code === "ROW_COLUMN_COUNT_MISMATCH")
-      ).toBe(true);
-    });
-  });
-
-  describe("Uji Nilai Sel Berdasarkan Aturan Template", () => {
-    it("menolak material_group_code dengan 8 digit angka", () => {
-      const content =
-        'material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n92100000;2026;1;1;MDN;101;Medan;"5,425579994";WD 12\r\n';
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "INVALID_DIGITS")).toBe(true);
-    });
-
-    it("menolak material_group_code yang mengandung huruf", () => {
-      const content =
-        'material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n92100000A;2026;1;1;MDN;101;Medan;"5,425579994";WD 12\r\n';
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "INVALID_DIGITS")).toBe(true);
-    });
-
-    it("menolak tgt_year dengan nilai '26' (bukan 4 digit)", () => {
-      const content =
-        'material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;26;1;1;MDN;101;Medan;"5,425579994";WD 12\r\n';
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors.some((e) => e.code === "INVALID_DIGITS")).toBe(true);
-    });
-
-    it("menolak tgt_quarter bernilai 5 (di luar rentang 1 - 4)", () => {
-      const content =
-        'material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;5;1;MDN;101;Medan;"5,425579994";WD 12\r\n';
-      const input = toInput("data.csv", content);
-      const result = validateFile(input, targetBrandDistributionTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(
-        result.errors.some((e) => e.code === "INVALID_INTEGER_RANGE")
-      ).toBe(true);
-    });
-
-    describe("Aturan Baru Nilai Sel tgt_pct_raw dan Hari Besar", () => {
-      it("menerima nilai tgt_pct_raw yang valid: koma, titik, integer, nol, di atas 100, notasi ilmiah, dan teks Maintain % Last BD", () => {
-        const validValues = [
-          "5,425579994",
-          "5.425579994",
-          "100",
-          "0",
-          "114.6903821",
-          "1,83333E-05",
-          "Maintain % Last BD",
-        ];
-
-        for (const val of validValues) {
-          const content = `material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;${val};WD 12\r\n`;
-          const input = toInput("data.csv", content);
-          const result = validateFile(input, targetBrandDistributionTemplate);
-          expect(result.ok).toBe(true);
-          expect(result.errors.length).toBe(0);
-        }
-      });
-
-      it("menolak nilai tgt_pct_raw yang tidak valid", () => {
-        const invalidValues = [
-          "abc",
-          "-5",
-          "",
-          "Maintain",
-          "maintain % last bd",
-          "12,5,5",
-        ];
-
-        for (const val of invalidValues) {
-          const content = `material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n921000006;2026;1;1;MDN;101;Medan;${val};WD 12\r\n`;
-          const input = toInput("data.csv", content);
-          const result = validateFile(input, targetBrandDistributionTemplate);
-          expect(result.ok).toBe(false);
-          expect(result.errors.length).toBeGreaterThan(0);
-        }
-      });
-
-      it("memberikan tepat satu warning agregat untuk spasi di awal/akhir pada banyak baris", () => {
-        let content =
-          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n";
-        for (let i = 0; i < 10; i++) {
-          content += `921000006;2026;1;1;MDN;101;Medan ;5,425579994;WD 12\r\n`;
-        }
-        const input = toInput("data.csv", content);
-        const result = validateFile(input, targetBrandDistributionTemplate);
-
-        expect(result.ok).toBe(true);
-        const wsWarnings = result.warnings.filter(
-          (w) => w.code === "WHITESPACE_TRIM_WARNING"
-        );
-        expect(wsWarnings.length).toBe(1);
-        expect(wsWarnings[0].message).toContain("10 nilai di kolom 'rayon_name'");
-        expect(wsWarnings[0].message).toContain("baris 2, 3, 4");
-      });
-
-      it("menghasilkan warning agregat ketika titik dan koma dicampur pada kolom numerik yang sama", () => {
-        const mixedContent =
-          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;5.42;WD 12\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;6,95;WD 12\r\n";
-        const resultMixed = validateFile(
-          toInput("data.csv", mixedContent),
-          targetBrandDistributionTemplate
-        );
-        expect(resultMixed.ok).toBe(true);
-        const mixedWarnings = resultMixed.warnings.filter(
-          (w) => w.code === "MIXED_DECIMAL_SEPARATORS"
-        );
-        expect(mixedWarnings.length).toBe(1);
-        expect(mixedWarnings[0].message).toContain("titik (1 nilai");
-        expect(mixedWarnings[0].message).toContain("koma (1 nilai");
-
-        const onlyDots =
-          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;5.42;WD 12\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;6.95;WD 12\r\n";
-        const resultDots = validateFile(
-          toInput("data.csv", onlyDots),
-          targetBrandDistributionTemplate
-        );
-        expect(
-          resultDots.warnings.some((w) => w.code === "MIXED_DECIMAL_SEPARATORS")
-        ).toBe(false);
-
-        const onlyCommas =
-          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;5,42;WD 12\r\n" +
-          "921000006;2026;1;1;MDN;101;Medan;6,95;WD 12\r\n";
-        const resultCommas = validateFile(
-          toInput("data.csv", onlyCommas),
-          targetBrandDistributionTemplate
-        );
-        expect(
-          resultCommas.warnings.some(
-            (w) => w.code === "MIXED_DECIMAL_SEPARATORS"
-          )
-        ).toBe(false);
-      });
-
-      it("memvalidasi Hari Besar: KeteranganHariBesar kosong diizinkan, baris ';;' tetap warning, week di luar 1-53 dan year bukan 4 digit ditolak", () => {
-        const validBlank =
-          "Year;Week;KeteranganHariBesar\r\n2026;1;Tahun baru\r\n2026;24;\r\n2026;33;Kemerdekaan\r\n";
-        const resultBlank = validateFile(
-          toInput("data.csv", validBlank),
-          hariBesarTemplate
-        );
-        expect(resultBlank.ok).toBe(true);
-        expect(resultBlank.errors.length).toBe(0);
-        expect(resultBlank.warnings.length).toBe(0);
-
-        const withBlankRows =
-          "Year;Week;KeteranganHariBesar\r\n2026;1;Tahun baru\r\n;;\r\n2026;2;\r\n";
-        const resultBlankRows = validateFile(
-          toInput("data.csv", withBlankRows),
-          hariBesarTemplate
-        );
-        expect(resultBlankRows.ok).toBe(true);
-        expect(
-          resultBlankRows.warnings.some((w) => w.code === "BLANK_ROW")
-        ).toBe(true);
-
-        const weekZero = "Year;Week;KeteranganHariBesar\r\n2026;0;Libur\r\n";
-        expect(validateFile(toInput("data.csv", weekZero), hariBesarTemplate).ok).toBe(false);
-
-        const week54 = "Year;Week;KeteranganHariBesar\r\n2026;54;Libur\r\n";
-        expect(validateFile(toInput("data.csv", week54), hariBesarTemplate).ok).toBe(false);
-
-        const yearShort = "Year;Week;KeteranganHariBesar\r\n26;1;Libur\r\n";
-        expect(validateFile(toInput("data.csv", yearShort), hariBesarTemplate).ok).toBe(false);
-      });
-
-      it("mampu memvalidasi 40.000 baris dengan cepat di bawah 5 detik dan membatasi issue tersimpan maksimal 200", () => {
-        const header =
-          "material_group_code;tgt_year;tgt_quarter;regional_code;area_short;rayon_code;rayon_name;tgt_pct_raw;brand_name\r\n";
-        const validLine =
-          "921000006;2026;1;1;MDN;101;Medan;5,425579994;WD 12\r\n";
-        const largeContent = header + validLine.repeat(40000);
-        const input = toInput("large.csv", largeContent);
-
-        const start = Date.now();
-        const result = validateFile(input, targetBrandDistributionTemplate);
-        const duration = Date.now() - start;
-
-        expect(result.ok).toBe(true);
-        expect(result.summary.rowCount).toBe(40000);
-        expect(duration).toBeLessThan(5000);
-
-        const invalidLine =
-          "921000006;2026;5;1;MDN;101;Medan;abc;WD 12\r\n";
-        const invalidContent = header + invalidLine.repeat(300);
-        const invalidInput = toInput("invalid_large.csv", invalidContent);
-        const invalidResult = validateFile(
-          invalidInput,
-          targetBrandDistributionTemplate
-        );
-
-        expect(invalidResult.ok).toBe(false);
-        expect(invalidResult.errors.length).toBeLessThanOrEqual(200);
-        expect(invalidResult.summary.totalErrors).toBeGreaterThan(200);
-      });
-    });
-  });
-
-  describe("Uji Validasi Berkas Parquet dan csv-or-parquet", () => {
-    it("menerima berkas Parquet valid yang diawali dan diakhiri dengan PAR1", () => {
-      const validParquet = new Uint8Array([
-        0x50, 0x41, 0x52, 0x31,
-        0x00, 0x01, 0x02, 0x03,
-        0x50, 0x41, 0x52, 0x31,
-      ]);
-      const input = toInput("research.parquet", validParquet);
-      const result = validateFile(input, dataResearchTemplate);
-
-      expect(result.ok).toBe(true);
-      expect(result.errors.length).toBe(0);
-    });
-
-    it("menolak berkas Parquet tanpa tanda tangan PAR1 yang benar", () => {
-      const invalidParquet = new Uint8Array([
-        0x00, 0x01, 0x02, 0x03,
-        0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b,
-      ]);
-      const input = toInput("research.parquet", invalidParquet);
-      const result = validateFile(input, dataResearchTemplate);
-
-      expect(result.ok).toBe(false);
-      expect(result.errors[0].code).toBe("INVALID_PARQUET_FILE");
-    });
-
-    it("memvalidasi data-research dalam format CSV generik dengan pemisah koma", () => {
-      const content = "id,category,score\r\n1,alpha,95.5\r\n2,beta,80.0\r\n";
-      const input = toInput("research.csv", content);
-      const result = validateFile(input, dataResearchTemplate);
-
-      expect(result.ok).toBe(true);
-      expect(result.errors.length).toBe(0);
-      expect(result.summary.rowCount).toBe(2);
-      expect(result.summary.columnCount).toBe(3);
-      expect(result.summary.detectedDelimiter).toBe(",");
+      const res = await validateFile(
+        { name: "transaksi.parquet", size: buf.byteLength, bytes: buf },
+        baseTemplate,
+        { maxParquetRowScanBytes: 50 }
+      );
+      expect(res.warnings.some((w) => w.code === "LARGE_PARQUET_SKIPPED")).toBe(true);
+      expect(res.warnings.find((w) => w.code === "LARGE_PARQUET_SKIPPED")?.message).toBe(
+        "Isi sel tidak diperiksa untuk file besar."
+      );
     });
   });
 });

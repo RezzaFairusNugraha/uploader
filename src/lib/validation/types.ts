@@ -33,4 +33,5 @@ export interface ValidationResult {
 
 export interface ValidationOptions {
   maxFileSizeMb?: number;
+  maxParquetRowScanBytes?: number;
 }

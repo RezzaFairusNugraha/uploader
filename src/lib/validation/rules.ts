@@ -1,20 +1,27 @@
-import type { ColumnDefinition } from "../templates";
+import type { ColumnRule } from "../templates/schema";
 import type { ValidationIssue } from "./types";
+
+export interface ColumnValidationTarget {
+  name: string;
+  required: boolean;
+  rule: ColumnRule;
+}
 
 function truncateValue(value: string): string {
   return value.length > 40 ? `${value.slice(0, 37)}...` : value;
 }
 
 export function validateCell(
-  rawValue: string,
-  column: ColumnDefinition,
+  rawValue: unknown,
+  column: ColumnValidationTarget,
   line: number
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  const trimmed = rawValue.trim();
-  const truncated = truncateValue(rawValue);
+  const strVal = rawValue === null || rawValue === undefined ? "" : String(rawValue);
+  const trimmed = strVal.trim();
+  const truncated = truncateValue(strVal);
 
-  if (column.required && trimmed.length === 0) {
+  if (column.required && (rawValue === null || rawValue === undefined || trimmed.length === 0)) {
     issues.push({
       level: "error",
       code: "REQUIRED_FIELD_EMPTY",
@@ -26,7 +33,7 @@ export function validateCell(
     return issues;
   }
 
-  if (trimmed.length === 0) {
+  if (rawValue === null || rawValue === undefined || trimmed.length === 0) {
     return issues;
   }
 
@@ -42,35 +49,7 @@ export function validateCell(
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' harus terdiri dari ${rule.length} digit angka.`,
-        });
-      }
-      break;
-    }
-
-    case "integerRange": {
-      const isInteger = /^-?\d+$/.test(trimmed);
-      if (!isInteger) {
-        issues.push({
-          level: "error",
-          code: "INVALID_INTEGER",
-          line,
-          column: column.name,
-          value: truncated,
-          message: `Kolom '${column.name}' harus berupa bilangan bulat.`,
-        });
-        break;
-      }
-
-      const num = parseInt(trimmed, 10);
-      if (num < rule.min || num > rule.max) {
-        issues.push({
-          level: "error",
-          code: "INVALID_INTEGER_RANGE",
-          line,
-          column: column.name,
-          value: truncated,
-          message: `Kolom '${column.name}' harus berupa bilangan bulat antara ${rule.min} dan ${rule.max}.`,
+          message: `Kolom '${column.name}' harus terdiri dari tepat ${rule.length} digit angka.`,
         });
       }
       break;
@@ -87,25 +66,38 @@ export function validateCell(
           value: truncated,
           message: `Kolom '${column.name}' harus berupa bilangan bulat.`,
         });
+        break;
       }
-      break;
-    }
 
-    case "text": {
-      if (trimmed.length === 0) {
+      const num = parseInt(trimmed, 10);
+      if (rule.min !== undefined && num < rule.min) {
         issues.push({
           level: "error",
-          code: "INVALID_TEXT",
+          code: "INVALID_INTEGER_RANGE",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' tidak boleh kosong.`,
+          message: `Kolom '${column.name}' bernilai ${num}, kurang dari batas minimum (${rule.min}).`,
+        });
+      }
+      if (rule.max !== undefined && num > rule.max) {
+        issues.push({
+          level: "error",
+          code: "INVALID_INTEGER_RANGE",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Kolom '${column.name}' bernilai ${num}, melebihi batas maksimum (${rule.max}).`,
         });
       }
       break;
     }
 
     case "decimal": {
+      if (rule.allowedText && rule.allowedText.includes(trimmed)) {
+        break;
+      }
+
       const hasComma = trimmed.includes(",");
       const hasDot = trimmed.includes(".");
 
@@ -116,39 +108,55 @@ export function validateCell(
           line,
           column: column.name,
           value: truncated,
-          message: `Format angka pada kolom '${column.name}' tidak valid.`,
+          message: `Format desimal pada kolom '${column.name}' tidak valid (mengandung titik dan koma sekaligus).`,
         });
         break;
       }
 
-      if (hasDot && !rule.allowDot) {
+      const allowComma = rule.allowComma ?? true;
+      const allowDot = rule.allowDot ?? true;
+      const allowScientific = rule.allowScientific ?? true;
+
+      if (hasComma && !allowComma) {
         issues.push({
           level: "error",
           code: "INVALID_DECIMAL",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' tidak boleh menggunakan titik sebagai pemisah desimal.`,
+          message: `Kolom '${column.name}' tidak mengizinkan pemisah koma (,).`,
         });
         break;
       }
 
-      if (hasComma && !rule.allowComma) {
+      if (hasDot && !allowDot) {
         issues.push({
           level: "error",
           code: "INVALID_DECIMAL",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' tidak boleh menggunakan koma sebagai pemisah desimal.`,
+          message: `Kolom '${column.name}' tidak mengizinkan pemisah titik (.).`,
+        });
+        break;
+      }
+
+      const isScientific = /[eE][+-]?\d+/.test(trimmed);
+      if (isScientific && !allowScientific) {
+        issues.push({
+          level: "error",
+          code: "INVALID_DECIMAL",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Kolom '${column.name}' tidak mengizinkan notasi ilmiah.`,
         });
         break;
       }
 
       const normalized = trimmed.replace(",", ".");
-      const isDecimal = /^-?\d+(\.\d+)?$/.test(normalized);
-
-      if (!isDecimal) {
+      const isDecimalValid = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(normalized);
+      if (!isDecimalValid) {
         issues.push({
           level: "error",
           code: "INVALID_DECIMAL",
@@ -161,56 +169,161 @@ export function validateCell(
       }
 
       const num = parseFloat(normalized);
-      if (isNaN(num) || num < rule.min || num > rule.max) {
+      if (isNaN(num)) {
+        issues.push({
+          level: "error",
+          code: "INVALID_DECIMAL",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Nilai pada kolom '${column.name}' bukan angka valid.`,
+        });
+        break;
+      }
+
+      if (rule.min !== undefined && num < rule.min) {
         issues.push({
           level: "error",
           code: "INVALID_DECIMAL_RANGE",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' harus bernilai antara ${rule.min} dan ${rule.max}.`,
+          message: `Kolom '${column.name}' bernilai ${num}, kurang dari batas minimum (${rule.min}).`,
+        });
+      }
+      if (rule.max !== undefined && num > rule.max) {
+        issues.push({
+          level: "error",
+          code: "INVALID_DECIMAL_RANGE",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Kolom '${column.name}' bernilai ${num}, melebihi batas maksimum (${rule.max}).`,
         });
       }
       break;
     }
 
-    case "numericOrText": {
-      if (rule.allowedText.includes(trimmed)) {
-        break;
-      }
-
-      const isNumeric = /^-?\d+([.,]\d+)?([eE][+-]?\d+)?$/.test(trimmed);
-      if (!isNumeric) {
-        const textOptions = rule.allowedText.map((t) => `'${t}'`).join(" atau ");
+    case "date": {
+      const isDateValid = checkDateFormat(trimmed, rule.format);
+      if (!isDateValid) {
         issues.push({
           level: "error",
-          code: "INVALID_NUMERIC_OR_TEXT",
+          code: "INVALID_DATE",
           line,
           column: column.name,
           value: truncated,
-          message: `Kolom '${column.name}' harus berupa angka (bilangan bulat, desimal titik/koma, atau notasi ilmiah) atau teks ${textOptions}.`,
-        });
-        break;
-      }
-
-      const normalized = trimmed.replace(",", ".");
-      const val = Number(normalized);
-      if (isNaN(val) || (rule.min !== undefined && val < rule.min)) {
-        issues.push({
-          level: "error",
-          code: "INVALID_NUMERIC_RANGE",
-          line,
-          column: column.name,
-          value: truncated,
-          message: `Kolom '${column.name}' harus bernilai minimal ${rule.min ?? 0}.`,
+          message: `Kolom '${column.name}' harus berformat tanggal '${rule.format}'.`,
         });
       }
       break;
     }
 
-    case "anyValue":
+    case "list": {
+      if (!rule.values.includes(trimmed)) {
+        issues.push({
+          level: "error",
+          code: "INVALID_LIST_VALUE",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Nilai '${truncated}' pada kolom '${column.name}' tidak terdapat dalam daftar yang diizinkan (${rule.values.join(", ")}).`,
+        });
+      }
       break;
+    }
+
+    case "text": {
+      if (rule.minLength !== undefined && trimmed.length < rule.minLength) {
+        issues.push({
+          level: "error",
+          code: "INVALID_TEXT_LENGTH",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Panjang teks kolom '${column.name}' (${trimmed.length}) kurang dari batas minimum (${rule.minLength}).`,
+        });
+      }
+      if (rule.maxLength !== undefined && trimmed.length > rule.maxLength) {
+        issues.push({
+          level: "error",
+          code: "INVALID_TEXT_LENGTH",
+          line,
+          column: column.name,
+          value: truncated,
+          message: `Panjang teks kolom '${column.name}' (${trimmed.length}) melebihi batas maksimum (${rule.maxLength}).`,
+        });
+      }
+      if (rule.allowedValues && rule.allowedValues.length > 0) {
+        if (!rule.allowedValues.includes(trimmed)) {
+          issues.push({
+            level: "error",
+            code: "INVALID_ALLOWED_VALUE",
+            line,
+            column: column.name,
+            value: truncated,
+            message: `Nilai '${truncated}' pada kolom '${column.name}' tidak termasuk dalam nilai teks yang diizinkan.`,
+          });
+        }
+      }
+      break;
+    }
   }
 
   return issues;
+}
+
+function checkDateFormat(value: string, format: string): boolean {
+  let regex: RegExp;
+  let yearIdx = 0;
+  let monthIdx = 1;
+  let dayIdx = 2;
+
+  switch (format) {
+    case "yyyy-MM-dd":
+      regex = /^(\d{4})-(\d{2})-(\d{2})$/;
+      yearIdx = 1;
+      monthIdx = 2;
+      dayIdx = 3;
+      break;
+    case "dd/MM/yyyy":
+      regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+      dayIdx = 1;
+      monthIdx = 2;
+      yearIdx = 3;
+      break;
+    case "MM/dd/yyyy":
+      regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+      monthIdx = 1;
+      dayIdx = 2;
+      yearIdx = 3;
+      break;
+    case "dd-MM-yyyy":
+      regex = /^(\d{2})-(\d{2})-(\d{4})$/;
+      dayIdx = 1;
+      monthIdx = 2;
+      yearIdx = 3;
+      break;
+    case "yyyy/MM/dd":
+      regex = /^(\d{4})\/(\d{2})\/(\d{2})$/;
+      yearIdx = 1;
+      monthIdx = 2;
+      dayIdx = 3;
+      break;
+    default:
+      return false;
+  }
+
+  const match = value.match(regex);
+  if (!match) return false;
+
+  const y = parseInt(match[yearIdx], 10);
+  const m = parseInt(match[monthIdx], 10);
+  const d = parseInt(match[dayIdx], 10);
+
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > 31) return false;
+
+  const daysInMonth = new Date(y, m, 0).getDate();
+  return d <= daysInMonth;
 }
