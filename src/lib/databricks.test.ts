@@ -8,149 +8,199 @@ describe("Databricks Client & Connection Test", () => {
     globalThis.fetch = originalFetch;
   });
 
-  describe("Pemetaan Kesalahan Klien Databricks", () => {
-    it("menangani kode status 200", async () => {
-      globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ files: [] }), {
-          status: 200,
-        })) as unknown as typeof fetch;
+  describe("Fungsi Klien Databricks & Mock Fetch", () => {
+    const client = createDatabricksClient(
+      "https://dbc-test.cloud.databricks.com",
+      "dapi-test-token"
+    );
 
-      const client = createDatabricksClient(
-        "https://dbc-test.cloud.databricks.com",
-        "fake-token"
-      );
-      const result = await client.checkDirectory("/Volumes/main/sales/files");
-      expect(result.success).toBe(true);
+    it("getSchema: berhasil mengambil schema saat status 200", async () => {
+      globalThis.fetch = (async (url) => {
+        expect(String(url)).toContain(
+          "/api/2.1/unity-catalog/schemas/main.sales"
+        );
+        return new Response(
+          JSON.stringify({ name: "sales", catalog_name: "main" }),
+          { status: 200 }
+        );
+      }) as unknown as typeof fetch;
+
+      const res = await client.getSchema("main", "sales");
+      expect(res.success).toBe(true);
+      expect(res.data?.name).toBe("sales");
     });
 
-    it("menangani kode status 401 sebagai token tidak valid atau kedaluwarsa", async () => {
-      globalThis.fetch = (async () =>
-        new Response("Unauthorized", {
-          status: 401,
-        })) as unknown as typeof fetch;
-
-      const client = createDatabricksClient(
-        "https://dbc-test.cloud.databricks.com",
-        "fake-token"
-      );
-      const result = await client.checkDirectory("/Volumes/main/sales/files");
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Token tidak valid atau kedaluwarsa");
-    });
-
-    it("menangani kode status 403 sebagai izin kurang", async () => {
-      globalThis.fetch = (async () =>
-        new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
-
-      const client = createDatabricksClient(
-        "https://dbc-test.cloud.databricks.com",
-        "fake-token"
-      );
-      const result = await client.checkDirectory("/Volumes/main/sales/files");
-      expect(result.success).toBe(false);
-      expect(result.error).toBe(
-        "Izin kurang (butuh READ VOLUME dan WRITE VOLUME)"
-      );
-    });
-
-    it("menangani kode status 404 sebagai path tidak ditemukan", async () => {
+    it("getSchema: menangani 404 sebagai katalog atau skema tidak ditemukan", async () => {
       globalThis.fetch = (async () =>
         new Response("Not Found", { status: 404 })) as unknown as typeof fetch;
 
-      const client = createDatabricksClient(
-        "https://dbc-test.cloud.databricks.com",
-        "fake-token"
-      );
-      const result = await client.checkDirectory("/Volumes/main/sales/files");
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Path tidak ditemukan");
+      const res = await client.getSchema("unknown_cat", "unknown_schema");
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Katalog atau skema tidak ditemukan");
     });
 
-    it("menangani kegagalan jaringan sebagai host tidak terjangkau", async () => {
-      globalThis.fetch = (async () => {
-        throw new Error("Network connection failed");
+    it("getVolume: berhasil mengambil volume saat status 200", async () => {
+      globalThis.fetch = (async (url) => {
+        expect(String(url)).toContain(
+          "/api/2.1/unity-catalog/volumes/main.sales.my_vol"
+        );
+        return new Response(
+          JSON.stringify({
+            name: "my_vol",
+            catalog_name: "main",
+            schema_name: "sales",
+            volume_type: "MANAGED",
+          }),
+          { status: 200 }
+        );
       }) as unknown as typeof fetch;
 
-      const client = createDatabricksClient(
-        "https://dbc-test.cloud.databricks.com",
-        "fake-token"
-      );
-      const result = await client.checkDirectory("/Volumes/main/sales/files");
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Host tidak terjangkau");
+      const res = await client.getVolume("main", "sales", "my_vol");
+      expect(res.success).toBe(true);
+      expect(res.data?.name).toBe("my_vol");
     });
-  });
 
-  describe("Uji Koneksi Read-Only Bertahap", () => {
-    it("berhasil melewati keempat langkah jika semua direktori tersedia", async () => {
+    it("getVolume: menangani 404 sebagai volume tidak ditemukan", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Not Found", { status: 404 })) as unknown as typeof fetch;
+
+      const res = await client.getVolume("main", "sales", "not_exist");
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("Volume tidak ditemukan");
+    });
+
+    it("createVolume: berhasil membuat volume dengan status 200/201", async () => {
+      let capturedBody: { volume_type?: string; name?: string } | null = null;
+      globalThis.fetch = (async (_url, init) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return new Response(
+          JSON.stringify({
+            name: "new_vol",
+            catalog_name: "main",
+            schema_name: "sales",
+            volume_type: "MANAGED",
+          }),
+          { status: 200 }
+        );
+      }) as unknown as typeof fetch;
+
+      const res = await client.createVolume("main", "sales", "new_vol");
+      expect(res.success).toBe(true);
+      expect(capturedBody.volume_type).toBe("MANAGED");
+      expect(capturedBody.name).toBe("new_vol");
+    });
+
+    it("createVolume: idempoten saat status 409 (volume sudah ada)", async () => {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ message: "Volume already exists" }), {
+          status: 409,
+        })) as unknown as typeof fetch;
+
+      const res = await client.createVolume("main", "sales", "existing_vol");
+      expect(res.success).toBe(true);
+      expect(res.status).toBe(409);
+    });
+
+    it("createVolume: 403 dipetakan dengan izin CREATE VOLUME, USE CATALOG, dan USE SCHEMA", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
+
+      const res = await client.createVolume("main", "sales", "no_perm_vol");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("CREATE VOLUME");
+      expect(res.error).toContain("USE CATALOG");
+      expect(res.error).toContain("USE SCHEMA");
+    });
+
+    it("createDirectory: idempoten dan berhasil saat 200 atau 409", async () => {
       globalThis.fetch = (async () =>
         new Response("{}", { status: 200 })) as unknown as typeof fetch;
 
-      const result = await runConnectionTest({
-        workspaceUrl: "https://dbc-test.cloud.databricks.com",
-        token: "fake-token",
-        catalog: "main",
-        schema: "sales",
-        volume: "files",
-        subfolderCsv: "csv",
-        subfolderParquet: "parquet",
-        maxFileSizeMb: 100,
-      });
+      const res = await client.createDirectory("/Volumes/main/sales/v/csv");
+      expect(res.success).toBe(true);
 
-      expect(result.success).toBe(true);
-      expect(result.steps.length).toBe(4);
-      expect(result.steps.every((s) => s.success)).toBe(true);
+      globalThis.fetch = (async () =>
+        new Response("Directory exists", { status: 409 })) as unknown as typeof fetch;
+
+      const res409 = await client.createDirectory("/Volumes/main/sales/v/csv");
+      expect(res409.success).toBe(true);
     });
 
-    it("menghentikan langkah selanjutnya jika host tidak terjangkau", async () => {
+    it("menangani token 401 dan kegagalan jaringan secara aman tanpa membocorkan token", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+
+      const res401 = await client.checkDirectory("/Volumes/main/sales/files");
+      expect(res401.success).toBe(false);
+      expect(res401.error).toBe("Token tidak valid atau kedaluwarsa");
+
       globalThis.fetch = (async () => {
-        throw new Error("ENOTFOUND");
+        throw new Error("Network offline");
       }) as unknown as typeof fetch;
 
-      const result = await runConnectionTest({
-        workspaceUrl: "https://dbc-test.cloud.databricks.com",
-        token: "fake-token",
-        catalog: "main",
-        schema: "sales",
-        volume: "files",
-        subfolderCsv: "csv",
-        subfolderParquet: "parquet",
-        maxFileSizeMb: 100,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.steps[0].success).toBe(false);
-      expect(result.steps[0].message).toBe("Host tidak terjangkau");
-      expect(result.steps[1].success).toBe(false);
-      expect(result.steps[1].message).toBe("Pemeriksaan dilewati");
+      const resNetwork = await client.checkDirectory("/Volumes/main/sales/files");
+      expect(resNetwork.success).toBe(false);
+      expect(resNetwork.error).toContain("Host tidak terjangkau");
     });
+  });
 
-    it("mendeteksi jika subfolder CSV tidak ditemukan", async () => {
-      globalThis.fetch = (async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/csv")) {
-          return new Response("Not Found", { status: 404 });
+  describe("Uji Koneksi Read-Only (runConnectionTest)", () => {
+    const dummySettings = {
+      workspaceUrl: "https://dbc-test.cloud.databricks.com",
+      token: "valid-secret-token",
+      catalog: "main",
+      schema: "sales",
+      maxFileSizeMb: 100,
+    };
+
+    it("berhasil melewati semua tahap dan menyertakan catatan izin CREATE VOLUME", async () => {
+      globalThis.fetch = (async (url) => {
+        const str = String(url);
+        if (str.includes("/schemas/")) {
+          return new Response(JSON.stringify({ name: "sales" }), {
+            status: 200,
+          });
         }
-        return new Response("{}", { status: 200 });
+        if (str.includes("/volumes?")) {
+          return new Response(JSON.stringify({ volumes: [] }), {
+            status: 200,
+          });
+        }
+        return new Response("Not Found", { status: 404 });
       }) as unknown as typeof fetch;
 
-      const result = await runConnectionTest({
-        workspaceUrl: "https://dbc-test.cloud.databricks.com",
-        token: "fake-token",
-        catalog: "main",
-        schema: "sales",
-        volume: "files",
-        subfolderCsv: "csv",
-        subfolderParquet: "parquet",
-        maxFileSizeMb: 100,
-      });
-
-      expect(result.success).toBe(false);
+      const result = await runConnectionTest(dummySettings);
+      expect(result.success).toBe(true);
+      expect(result.steps.length).toBe(3);
       expect(result.steps[0].success).toBe(true);
       expect(result.steps[1].success).toBe(true);
-      expect(result.steps[2].success).toBe(false);
-      expect(result.steps[2].fix).toContain("Buat folder 'csv'");
-      expect(result.steps[3].success).toBe(true);
+      expect(result.steps[2].success).toBe(true);
+      expect(result.steps[2].message).toBe(
+        "Izin CREATE VOLUME baru terbukti saat template pertama dibuat."
+      );
+    });
+
+    it("menghentikan langkah berikutnya jika token 401", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
+
+      const result = await runConnectionTest(dummySettings);
+      expect(result.success).toBe(false);
+      expect(result.steps[0].success).toBe(false);
+      expect(result.steps[1].message).toBe("Pemeriksaan dilewati");
+      expect(result.steps[2].message).toBe("Pemeriksaan dilewati");
+    });
+
+    it("menghentikan langkah jika katalog/skema 404", async () => {
+      globalThis.fetch = (async () =>
+        new Response("Not Found", { status: 404 })) as unknown as typeof fetch;
+
+      const result = await runConnectionTest(dummySettings);
+      expect(result.success).toBe(false);
+      expect(result.steps[0].success).toBe(true);
+      expect(result.steps[1].success).toBe(false);
+      expect(result.steps[1].message).toBe("Katalog atau skema tidak ditemukan");
+      expect(result.steps[2].message).toBe("Pemeriksaan dilewati");
     });
   });
 });
