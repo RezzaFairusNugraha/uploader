@@ -16,6 +16,7 @@ import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
 import { notify } from "@/lib/notify";
+import { diffTemplates } from "@/lib/templates/diff";
 import {
   columnNameRegex,
   type ColumnDefinition,
@@ -23,6 +24,7 @@ import {
   type TemplateDefinition,
   type TemplateDelimiter,
 } from "@/lib/templates/schema";
+import type { TemplateVersionItem } from "@/lib/templates/versions";
 
 type RuleType = "text" | "integer" | "digits" | "decimal" | "date" | "list";
 
@@ -49,6 +51,18 @@ const defaultRules: Record<RuleType, ColumnRule> = {
   list: { type: "list", values: ["Aktif", "Nonaktif"] },
 };
 
+function formatDate(isoStr: string): string {
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleString("id-ID", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return isoStr;
+  }
+}
+
 export default function EditTemplatePage({
   params,
 }: {
@@ -57,7 +71,7 @@ export default function EditTemplatePage({
   return (
     <Suspense
       fallback={
-        <div className="py-12 text-center text-sm text-zinc-500">
+        <div className="py-12 text-center text-base text-zinc-500">
           Memuat halaman edit...
         </div>
       }
@@ -77,14 +91,28 @@ function EditTemplateForm({
 
   const [isLoading, setIsLoading] = useState(true);
   const [template, setTemplate] = useState<TemplateDefinition | null>(null);
+  const [versions, setVersions] = useState<TemplateVersionItem[]>([]);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [delimiter, setDelimiter] = useState<TemplateDelimiter>(";");
+  const [changedBy, setChangedBy] = useState("");
   const [columns, setColumns] = useState<ColumnDraft[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
+  const [breakingDiff, setBreakingDiff] = useState<{
+    changes: string[];
+    isBreaking: boolean;
+    summary: string;
+  } | null>(null);
+  const [confirmedBreaking, setConfirmedBreaking] = useState(false);
+
   useEffect(() => {
+    const savedName = localStorage.getItem("uploader_user_name");
+    if (savedName) {
+      setChangedBy(savedName);
+    }
+
     let active = true;
 
     fetch(`/api/templates/${id}`)
@@ -106,52 +134,48 @@ function EditTemplateForm({
           }))
         );
       })
-      .catch(() => {
-        notify.error("Gagal memuat template");
-      })
+      .catch(() => {})
       .finally(() => {
         if (active) setIsLoading(false);
       });
+
+    fetch(`/api/templates/${id}/versions`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.items) {
+          setVersions(data.items);
+        }
+      })
+      .catch(() => {});
 
     return () => {
       active = false;
     };
   }, [id]);
 
-  const columnNames = columns.map((c) => c.name.trim());
-  const duplicateNames = new Set(
-    columnNames.filter((item, index) => item && columnNames.indexOf(item) !== index)
-  );
-
   const addColumn = () => {
-    const newIdx = columns.length + 1;
     const newDraft: ColumnDraft = {
-      id: `col-${Date.now()}`,
-      name: `kolom_${newIdx}`,
+      id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      name: `kolom_${columns.length + 1}`,
       required: true,
       type: "text",
       rule: { type: "text" },
       isExpanded: true,
     };
-    setColumns((prev) => [...prev, newDraft]);
+    setColumns([...columns, newDraft]);
   };
 
   const removeColumn = (colId: string) => {
-    setColumns((prev) => prev.filter((c) => c.id !== colId));
-  };
-
-  const moveColumn = (index: number, direction: "up" | "down") => {
-    const targetIdx = direction === "up" ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= columns.length) return;
-    const updated = [...columns];
-    const [moved] = updated.splice(index, 1);
-    updated.splice(targetIdx, 0, moved);
-    setColumns(updated);
+    if (columns.length <= 1) {
+      notify.error("Template harus memiliki minimal 1 kolom");
+      return;
+    }
+    setColumns(columns.filter((c) => c.id !== colId));
   };
 
   const updateColumn = (colId: string, patch: Partial<ColumnDraft>) => {
-    setColumns((prev) =>
-      prev.map((c) => {
+    setColumns(
+      columns.map((c) => {
         if (c.id !== colId) return c;
         const updated = { ...c, ...patch };
         if (patch.type && patch.type !== c.type) {
@@ -162,45 +186,74 @@ function EditTemplateForm({
     );
   };
 
-  const updateColumnRule = (colId: string, patchRule: Partial<ColumnRule>) => {
-    setColumns((prev) =>
-      prev.map((c) => {
+  const updateColumnRule = (colId: string, rulePatch: Partial<ColumnRule>) => {
+    setColumns(
+      columns.map((c) => {
         if (c.id !== colId) return c;
         return {
           ...c,
-          rule: { ...c.rule, ...patchRule } as ColumnRule,
+          rule: { ...c.rule, ...rulePatch } as ColumnRule,
         };
       })
     );
   };
 
+  const moveColumn = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= columns.length) return;
+    const nextCols = [...columns];
+    const [moved] = nextCols.splice(index, 1);
+    nextCols.splice(targetIndex, 0, moved);
+    setColumns(nextCols);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!template) return;
 
-    if (duplicateNames.size > 0) {
-      notify.error("Terdapat nama kolom duplikat");
+    if (!name.trim()) {
+      notify.error("Nama template wajib diisi");
       return;
     }
 
-    if (columns.length === 0) {
-      notify.error("Template minimal harus memiliki 1 kolom");
-      return;
-    }
-
-    for (const c of columns) {
-      if (!columnNameRegex.test(c.name.trim())) {
-        notify.error(`Nama kolom '${c.name}' tidak valid`);
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
+      if (!col.name.trim()) {
+        notify.error(`Kolom #${i + 1} belum memiliki nama`);
+        return;
+      }
+      if (!columnNameRegex.test(col.name.trim())) {
+        notify.error(
+          `Nama kolom '${col.name}' tidak valid. Gunakan huruf, angka, atau underscore`
+        );
         return;
       }
     }
-
-    setIsSaving(true);
 
     const formattedColumns: ColumnDefinition[] = columns.map((c) => ({
       name: c.name.trim(),
       required: c.required,
       rule: c.rule,
     }));
+
+    const nextTpl: TemplateDefinition = {
+      ...template,
+      name: name.trim(),
+      description: description.trim(),
+      delimiter,
+      columns: formattedColumns,
+    };
+
+    const diff = diffTemplates(template, nextTpl);
+    if (diff.isBreaking && !confirmedBreaking) {
+      setBreakingDiff(diff);
+      return;
+    }
+
+    setIsSaving(true);
+    if (changedBy.trim()) {
+      localStorage.setItem("uploader_user_name", changedBy.trim());
+    }
 
     try {
       const res = await fetch(`/api/templates/${id}`, {
@@ -211,6 +264,7 @@ function EditTemplateForm({
           description: description.trim(),
           delimiter,
           columns: formattedColumns,
+          changedBy: changedBy.trim() || undefined,
         }),
       });
 
@@ -219,10 +273,10 @@ function EditTemplateForm({
         throw new Error(updated.error || "Gagal memperbarui template");
       }
 
-      notify.success("Perubahan template disimpan");
+      notify.success("Perubahan template berhasil disimpan");
       setTimeout(() => {
         router.push("/template");
-      }, 1000);
+      }, 800);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
       notify.error(msg);
@@ -233,7 +287,7 @@ function EditTemplateForm({
 
   if (isLoading) {
     return (
-      <div className="py-12 text-center text-sm text-zinc-500">
+      <div className="py-12 text-center text-base text-zinc-500">
         Memuat data template...
       </div>
     );
@@ -250,24 +304,51 @@ function EditTemplateForm({
     );
   }
 
-  const volumePath = `/Volumes/${template.volume.catalog}/${template.volume.schema}/${template.volume.name}`;
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 text-base">
       <PageHeader
-        title={`Edit Template: ${template.name}`}
-        description={`Versi ${template.version} • Terdaftar di Unity Catalog.`}
+        title={`Ubah Template: ${template.name}`}
+        description={`Versi ${template.version} • Terbuka untuk semua rekan kerja.`}
       />
 
-      <Callout type="warning" title="Peringatan Perubahan Definisi">
-        Berkas yang sudah diunggah sebelumnya tidak akan divalidasi ulang secara
-        otomatis. Perubahan nama atau aturan kolom dapat mempengaruhi pipeline
-        pemrosesan data Databricks yang bergantung pada template ini.
-      </Callout>
+      {breakingDiff && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-6 space-y-4">
+          <div className="text-base font-semibold text-amber-950">
+            Konfirmasi Perubahan Berdampak Besar
+          </div>
+          <p className="text-sm text-amber-900">
+            Perubahan berikut dapat menyebabkan berkas data lama tidak lagi memenuhi aturan:
+          </p>
+          <ul className="list-disc list-inside text-sm text-amber-800 space-y-1">
+            {breakingDiff.changes.map((ch, idx) => (
+              <li key={idx}>{ch}</li>
+            ))}
+          </ul>
+          <div className="pt-2 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmedBreaking(true);
+                setBreakingDiff(null);
+              }}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold transition"
+            >
+              Saya paham dan lanjutkan
+            </button>
+            <button
+              type="button"
+              onClick={() => setBreakingDiff(null)}
+              className="text-sm text-amber-900 underline"
+            >
+              Kembali periksa
+            </button>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
             Informasi Template
           </h2>
 
@@ -280,18 +361,14 @@ function EditTemplateForm({
             required
           />
 
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">
-              Slug & Lokasi Volume (Read-only)
-            </label>
-            <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono text-zinc-600 space-y-1">
-              <div>Slug: {template.slug}</div>
-              <div>Path: {volumePath}</div>
-            </div>
-            <p className="text-[11px] text-zinc-400 mt-1">
-              Slug dan lokasi volume tidak dapat diubah setelah volume dibuat di Unity Catalog.
-            </p>
-          </div>
+          <Field
+            id="template-changed-by"
+            label="Nama Anda (Penyunting)"
+            name="changedBy"
+            value={changedBy}
+            onChange={(e) => setChangedBy(e.target.value)}
+            hint="Akan dicatat di riwayat perubahan template."
+          />
 
           <div>
             <label
@@ -305,13 +382,13 @@ function EditTemplateForm({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 text-sm bg-white text-zinc-900 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 transition"
+              className="w-full px-3 py-2 text-base bg-white text-zinc-900 border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 transition"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-zinc-700 mb-1.5">
-              Pemisah CSV (Delimiter)
+              Pemisah Kolom CSV
             </label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
@@ -340,15 +417,15 @@ function EditTemplateForm({
           </div>
         </div>
 
-        {/* Column Editor */}
+        {/* Kolom */}
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-900">
-                Definisi Kolom
+              <h2 className="text-base font-semibold text-zinc-900">
+                Aturan Pengisian Kolom
               </h2>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Perbarui struktur kolom dan aturan validasi.
+              <p className="text-sm text-zinc-500 mt-0.5">
+                Atur nama kolom dan kriteria pemeriksaan nilai.
               </p>
             </div>
             <Button type="button" variant="secondary" onClick={addColumn}>
@@ -357,13 +434,6 @@ function EditTemplateForm({
             </Button>
           </div>
 
-          {duplicateNames.size > 0 && (
-            <Callout type="error" title="Kolom Duplikat">
-              Nama kolom berikut tidak boleh sama:{" "}
-              {Array.from(duplicateNames).join(", ")}
-            </Callout>
-          )}
-
           <div className="space-y-3">
             {columns.map((col, idx) => (
               <div
@@ -371,7 +441,7 @@ function EditTemplateForm({
                 className="border border-zinc-200 bg-white rounded-lg transition-all"
               >
                 <div className="p-3.5 flex flex-wrap items-center gap-3">
-                  <span className="text-xs font-mono text-zinc-400 w-6">
+                  <span className="text-sm font-mono text-zinc-400 w-6">
                     #{idx + 1}
                   </span>
 
@@ -382,11 +452,11 @@ function EditTemplateForm({
                       onChange={(e) =>
                         updateColumn(col.id, { name: e.target.value })
                       }
-                      className="w-full h-9 px-2.5 text-xs font-mono bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                      className="w-full h-10 px-2.5 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
                     />
                   </div>
 
-                  <div className="w-32">
+                  <div className="w-36">
                     <select
                       value={col.type}
                       onChange={(e) =>
@@ -394,7 +464,7 @@ function EditTemplateForm({
                           type: e.target.value as RuleType,
                         })
                       }
-                      className="w-full h-9 px-2 text-xs bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                      className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
                     >
                       <option value="text">Teks</option>
                       <option value="digits">Digit Angka</option>
@@ -405,7 +475,7 @@ function EditTemplateForm({
                     </select>
                   </div>
 
-                  <div className="w-28">
+                  <div className="w-32">
                     <select
                       value={col.required ? "wajib" : "opsional"}
                       onChange={(e) =>
@@ -413,9 +483,9 @@ function EditTemplateForm({
                           required: e.target.value === "wajib",
                         })
                       }
-                      className="w-full h-9 px-2 text-xs bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
+                      className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
                     >
-                      <option value="wajib">Wajib</option>
+                      <option value="wajib">Wajib diisi</option>
                       <option value="opsional">Boleh kosong</option>
                     </select>
                   </div>
@@ -426,7 +496,7 @@ function EditTemplateForm({
                       onClick={() =>
                         updateColumn(col.id, { isExpanded: !col.isExpanded })
                       }
-                      className="p-1.5 text-zinc-500 hover:text-zinc-800 rounded hover:bg-zinc-100"
+                      className="p-2 text-zinc-500 hover:text-zinc-800 rounded hover:bg-zinc-100"
                     >
                       {col.isExpanded ? (
                         <ChevronUp className="w-4 h-4" />
@@ -438,30 +508,30 @@ function EditTemplateForm({
                       type="button"
                       disabled={idx === 0}
                       onClick={() => moveColumn(idx, "up")}
-                      className="p-1.5 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
+                      className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
                     >
-                      <ArrowUp className="w-3.5 h-3.5" />
+                      <ArrowUp className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       disabled={idx === columns.length - 1}
                       onClick={() => moveColumn(idx, "down")}
-                      className="p-1.5 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
+                      className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
                     >
-                      <ArrowDown className="w-3.5 h-3.5" />
+                      <ArrowDown className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => removeColumn(col.id)}
-                      className="p-1.5 text-zinc-400 hover:text-rose-600 rounded hover:bg-rose-50"
+                      className="p-2 text-zinc-400 hover:text-rose-600 rounded hover:bg-rose-50"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
                 {col.isExpanded && (
-                  <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-xs space-y-3">
+                  <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-sm space-y-3">
                     {col.type === "digits" && (
                       <div className="flex items-center gap-3">
                         <span className="text-zinc-700">Panjang digit:</span>
@@ -475,7 +545,7 @@ function EditTemplateForm({
                               length: Number(e.target.value),
                             })
                           }
-                          className="w-20 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
+                          className="w-20 h-9 px-2 bg-white border border-zinc-200 rounded text-sm"
                         />
                       </div>
                     )}
@@ -507,37 +577,6 @@ function EditTemplateForm({
                             />
                             Boleh titik (.)
                           </label>
-                          <label className="flex items-center gap-1.5 text-zinc-700">
-                            <input
-                              type="checkbox"
-                              checked={(col.rule as { allowScientific?: boolean }).allowScientific ?? true}
-                              onChange={(e) =>
-                                updateColumnRule(col.id, {
-                                  allowScientific: e.target.checked,
-                                })
-                              }
-                            />
-                            Boleh notasi ilmiah
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2 pt-1">
-                          <span className="text-zinc-700">Teks khusus:</span>
-                          <input
-                            type="text"
-                            value={
-                              ((col.rule as { allowedText?: string[] }).allowedText || []).join(
-                                ", "
-                              )
-                            }
-                            onChange={(e) => {
-                              const vals = e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter(Boolean);
-                              updateColumnRule(col.id, { allowedText: vals });
-                            }}
-                            className="flex-1 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                          />
                         </div>
                       </div>
                     )}
@@ -547,6 +586,29 @@ function EditTemplateForm({
             ))}
           </div>
         </div>
+
+        {/* Riwayat Versi Template Ini */}
+        {versions.length > 0 && (
+          <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-3">
+            <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-2">
+              Riwayat Versi Template Ini
+            </h2>
+            <div className="divide-y divide-zinc-100">
+              {versions.map((ver) => (
+                <div key={ver.id} className="py-2.5 flex items-center justify-between text-sm">
+                  <div>
+                    <span className="font-semibold text-zinc-800">Versi {ver.version}</span>
+                    <span className="text-zinc-400 mx-2">•</span>
+                    <span className="text-zinc-600">{ver.changeSummary}</span>
+                  </div>
+                  <div className="text-xs text-zinc-400">
+                    Oleh {ver.changedBy} • {formatDate(ver.createdAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between pt-2">
           <Link href="/template">
