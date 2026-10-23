@@ -31,9 +31,12 @@ export interface CreateUploadLogInput {
   errorMessage?: string | null;
 }
 
+export type UploadLogItem = UploadLogEntry;
+
 export interface UploadLogRepository {
   insert(input: CreateUploadLogInput): Promise<UploadLogEntry>;
   listByTemplate(templateId: string, limit?: number): Promise<UploadLogEntry[]>;
+  listRecent(limit?: number): Promise<UploadLogEntry[]>;
 }
 
 function mapRowToLogEntry(row: UploadLogRow): UploadLogEntry {
@@ -90,6 +93,18 @@ export class DrizzleUploadLogRepository implements UploadLogRepository {
     );
     return rows.map(mapRowToLogEntry);
   }
+
+  async listRecent(limit: number = 50): Promise<UploadLogEntry[]> {
+    const db = createDb();
+    const rows = await withDbRetry(() =>
+      db
+        .select()
+        .from(uploadLog)
+        .orderBy(desc(uploadLog.createdAt))
+        .limit(limit)
+    );
+    return rows.map(mapRowToLogEntry);
+  }
 }
 
 export class FakeInMemoryUploadLogRepository implements UploadLogRepository {
@@ -119,6 +134,10 @@ export class FakeInMemoryUploadLogRepository implements UploadLogRepository {
       .filter((l) => l.templateId === templateId)
       .slice(0, limit);
   }
+
+  async listRecent(limit: number = 50): Promise<UploadLogEntry[]> {
+    return this.logs.slice(0, limit);
+  }
 }
 
 let activeUploadLogRepository: UploadLogRepository = new DrizzleUploadLogRepository();
@@ -137,5 +156,8 @@ export const uploadLogRepository: UploadLogRepository = {
   },
   listByTemplate(templateId: string, limit?: number) {
     return getUploadLogRepository().listByTemplate(templateId, limit);
+  },
+  listRecent(limit?: number) {
+    return getUploadLogRepository().listRecent(limit);
   },
 };

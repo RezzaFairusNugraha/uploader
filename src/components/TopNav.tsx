@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import StatusDot from "./StatusDot";
+import { USER_COPY } from "@/lib/copy";
 
 const navItems = [
-  { href: "/", label: "Unggah" },
-  { href: "/template", label: "Template" },
-  { href: "/pengaturan", label: "Pengaturan" },
+  { href: "/", label: USER_COPY.nav.unggah },
+  { href: "/template", label: USER_COPY.nav.template },
+  { href: "/riwayat", label: USER_COPY.nav.riwayat },
+  { href: "/panduan", label: USER_COPY.nav.panduan },
+  { href: "/pengaturan", label: USER_COPY.nav.koneksi },
 ];
 
 type ConnectionStatus = "unconfigured" | "connected" | "failed";
