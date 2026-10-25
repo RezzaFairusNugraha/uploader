@@ -134,6 +134,16 @@ export function diffTemplates(
     }
   }
 
+  const oldColNames = oldTpl.columns.map((c) => c.name);
+  const newColNames = newTpl.columns.map((c) => c.name);
+  if (
+    oldColNames.length === newColNames.length &&
+    oldColNames.some((n, i) => n !== newColNames[i]) &&
+    oldColNames.every((n) => newColNames.includes(n))
+  ) {
+    changes.push("Urutan kolom diubah");
+  }
+
   if (changes.length === 0) {
     return {
       changes: [],

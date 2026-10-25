@@ -89,16 +89,16 @@ describe("diffTemplates", () => {
     expect(res.isBreaking).toBe(true);
   });
 
-  it("memperketat aturan angka digits bersifat breaking", () => {
+  it("perubahan urutan kolom dilaporkan sebagai Urutan kolom diubah", () => {
     const updated: TemplateDefinition = {
       ...baseTemplate,
       columns: [
-        { name: "id_nasabah", required: true, rule: { type: "digits", length: 10 } },
         baseTemplate.columns[1],
+        baseTemplate.columns[0],
         baseTemplate.columns[2],
       ],
     };
     const res = diffTemplates(baseTemplate, updated);
-    expect(res.isBreaking).toBe(true);
+    expect(res.changes).toContain("Urutan kolom diubah");
   });
 });

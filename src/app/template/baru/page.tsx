@@ -5,22 +5,38 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   FileSpreadsheet,
   Loader2,
   Plus,
-  Trash2,
   Upload,
   XCircle,
 } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
+import {
+  SortableColumnRow,
+  DragOverlayColumnRow,
+  type SortableColumnItemData,
+} from "@/components/SortableColumnRow";
 import { notify } from "@/lib/notify";
 import { USER_COPY } from "@/lib/copy";
 import type { ConnectionState, MaskedSettings } from "@/lib/settings";
@@ -34,21 +50,12 @@ import {
   type ProvisionStepStatus,
   type TemplateDelimiter,
 } from "@/lib/templates/schema";
+import { arrayMove, generateStableColumnId } from "@/lib/templates/sortable";
+import { sortableAccessibility } from "@/lib/templates/sortableAccessibility";
 
 type RuleType = "text" | "integer" | "digits" | "decimal" | "date" | "list";
 
-interface ColumnDraft {
-  id: string;
-  name: string;
-  originalName?: string;
-  renamed?: boolean;
-  required: boolean;
-  type: RuleType;
-  rule: ColumnRule;
-  isExpanded: boolean;
-  observedMin?: number;
-  observedMax?: number;
-}
+type ColumnDraft = SortableColumnItemData;
 
 const defaultRules: Record<RuleType, ColumnRule> = {
   text: { type: "text" },
@@ -124,6 +131,34 @@ export default function NewTemplatePage() {
   const [currentTemplateId, setCurrentTemplateId] = useState<string | null>(
     null,
   );
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setColumns((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+    setActiveDragId(null);
+  };
 
   useEffect(() => {
     fetch("/api/settings")
@@ -170,7 +205,7 @@ export default function NewTemplatePage() {
   const addColumn = () => {
     const newIdx = columns.length + 1;
     const newDraft: ColumnDraft = {
-      id: `col-${Date.now()}`,
+      id: generateStableColumnId(),
       name: `kolom_${newIdx}`,
       required: true,
       type: "text",
@@ -300,8 +335,8 @@ export default function NewTemplatePage() {
       setIsSlugCustomized(false);
       setDelimiter(inferred.delimiter);
 
-      const mappedColumns: ColumnDraft[] = inferred.columns.map((c, i) => ({
-        id: `col-import-${i}-${Date.now()}`,
+      const mappedColumns: ColumnDraft[] = inferred.columns.map((c) => ({
+        id: generateStableColumnId(),
         name: c.name,
         originalName: c.originalName,
         renamed: c.renamed,
@@ -629,399 +664,49 @@ export default function NewTemplatePage() {
             </Callout>
           )}
 
-          <div className="space-y-3">
-            {columns.map((col, idx) => {
-              const isDuplicate = duplicateNames.has(col.name.trim());
-              const isInvalidName =
-                col.name.trim() && !columnNameRegex.test(col.name.trim());
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            accessibility={sortableAccessibility}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={columns.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-3">
+                {columns.map((col, idx) => {
+                  const isDuplicate = duplicateNames.has(col.name.trim());
+                  const isInvalidName =
+                    col.name.trim() && !columnNameRegex.test(col.name.trim());
 
-              return (
-                <div
-                  key={col.id}
-                  className={`border rounded-lg transition-all ${
-                    isDuplicate || isInvalidName
-                      ? "border-rose-300 bg-rose-50/20"
-                      : "border-zinc-200 bg-white"
-                  }`}
-                >
-                  <div className="p-3.5 flex flex-wrap items-center gap-3">
-                    <span className="text-xs font-mono text-zinc-400 w-6">
-                      #{idx + 1}
-                    </span>
-
-                    <div className="flex-1 min-w-44">
-                      <input
-                        type="text"
-                        value={col.name}
-                        onChange={(e) =>
-                          updateColumn(col.id, { name: e.target.value })
-                        }
-                        placeholder="nama_kolom"
-                        className="w-full h-9 px-2.5 text-xs font-mono bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                      />
-                      {col.renamed && col.originalName && (
-                        <div className="text-[11px] text-amber-600 mt-1">
-                          Disesuaikan dari: <span className="font-mono">{col.originalName}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="w-32">
-                      <select
-                        value={col.type}
-                        onChange={(e) =>
-                          updateColumn(col.id, {
-                            type: e.target.value as RuleType,
-                          })
-                        }
-                        className="w-full h-9 px-2 text-xs bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                      >
-                        <option value="text">Teks</option>
-                        <option value="digits">Digit Angka</option>
-                        <option value="integer">Bilangan Bulat</option>
-                        <option value="decimal">Desimal</option>
-                        <option value="date">Tanggal</option>
-                        <option value="list">Daftar Pilihan</option>
-                      </select>
-                    </div>
-
-                    <div className="w-28">
-                      <select
-                        value={col.required ? "wajib" : "opsional"}
-                        onChange={(e) =>
-                          updateColumn(col.id, {
-                            required: e.target.value === "wajib",
-                          })
-                        }
-                        className="w-full h-9 px-2 text-xs bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                      >
-                        <option value="wajib">Wajib</option>
-                        <option value="opsional">Boleh kosong</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center gap-1 ml-auto">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateColumn(col.id, { isExpanded: !col.isExpanded })
-                        }
-                        className="p-1.5 text-zinc-500 hover:text-zinc-800 rounded hover:bg-zinc-100"
-                        title="Aturan lanjutan"
-                      >
-                        {col.isExpanded ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => moveColumn(idx, "up")}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
-                        title="Geser ke atas"
-                      >
-                        <ArrowUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === columns.length - 1}
-                        onClick={() => moveColumn(idx, "down")}
-                        className="p-1.5 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
-                        title="Geser ke bawah"
-                      >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeColumn(col.id)}
-                        className="p-1.5 text-zinc-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                        title="Hapus kolom"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Panel Aturan Lanjutan */}
-                  {col.isExpanded && (
-                    <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-xs space-y-3">
-                      {col.type === "digits" && (
-                        <div className="flex items-center gap-3">
-                          <label className="font-medium text-zinc-700">
-                            Panjang digit pasti:
-                          </label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="64"
-                            value={
-                              (col.rule as { length?: number }).length || 9
-                            }
-                            onChange={(e) =>
-                              updateColumnRule(col.id, {
-                                length: Number(e.target.value),
-                              })
-                            }
-                            className="w-20 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                          />
-                          <span className="text-zinc-500">
-                            (Contoh: 9 digit angka seperti kode material)
-                          </span>
-                        </div>
-                      )}
-
-                      {col.type === "integer" && (
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-4">
-                            <div className="flex items-center gap-2">
-                              <span className="text-zinc-700">
-                                Nilai minimum:
-                              </span>
-                              <input
-                                type="number"
-                                value={(col.rule as { min?: number }).min ?? ""}
-                                onChange={(e) =>
-                                  updateColumnRule(col.id, {
-                                    min:
-                                      e.target.value === ""
-                                        ? undefined
-                                        : Number(e.target.value),
-                                  })
-                                }
-                                placeholder={
-                                  col.observedMin !== undefined
-                                    ? `Saran: ${col.observedMin}`
-                                    : "Tanpa batas"
-                                }
-                                className="w-24 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-zinc-700">
-                                Nilai maksimum:
-                              </span>
-                              <input
-                                type="number"
-                                value={(col.rule as { max?: number }).max ?? ""}
-                                onChange={(e) =>
-                                  updateColumnRule(col.id, {
-                                    max:
-                                      e.target.value === ""
-                                        ? undefined
-                                        : Number(e.target.value),
-                                  })
-                                }
-                                placeholder={
-                                  col.observedMax !== undefined
-                                    ? `Saran: ${col.observedMax}`
-                                    : "Tanpa batas"
-                                }
-                                className="w-24 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                              />
-                            </div>
-                          </div>
-                          {(col.observedMin !== undefined ||
-                            col.observedMax !== undefined) && (
-                            <div className="text-[11px] text-zinc-500">
-                              Nilai sampel teramati: min {col.observedMin}, max {col.observedMax}.
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {col.type === "decimal" && (
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-4">
-                            <label className="flex items-center gap-1.5 text-zinc-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  (col.rule as { allowComma?: boolean })
-                                    .allowComma ?? true
-                                }
-                                onChange={(e) =>
-                                  updateColumnRule(col.id, {
-                                    allowComma: e.target.checked,
-                                  })
-                                }
-                              />
-                              Boleh tanda koma (,) sebagai desimal
-                            </label>
-                            <label className="flex items-center gap-1.5 text-zinc-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  (col.rule as { allowDot?: boolean })
-                                    .allowDot ?? true
-                                }
-                                onChange={(e) =>
-                                  updateColumnRule(col.id, {
-                                    allowDot: e.target.checked,
-                                  })
-                                }
-                              />
-                              Boleh tanda titik (.) sebagai desimal
-                            </label>
-                            <label className="flex items-center gap-1.5 text-zinc-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  (col.rule as { allowScientific?: boolean })
-                                    .allowScientific ?? true
-                                }
-                                onChange={(e) =>
-                                  updateColumnRule(col.id, {
-                                    allowScientific: e.target.checked,
-                                  })
-                                }
-                              />
-                              Boleh notasi ilmiah (misal 1.8E-5)
-                            </label>
-                          </div>
-                          <div className="flex items-center gap-2 pt-1">
-                            <span className="text-zinc-700">
-                              Teks khusus yang diizinkan (pisahkan koma):
-                            </span>
-                            <input
-                              type="text"
-                              value={(
-                                (col.rule as { allowedText?: string[] })
-                                  .allowedText || []
-                              ).join(", ")}
-                              onChange={(e) => {
-                                const vals = e.target.value
-                                  .split(",")
-                                  .map((s) => s.trim())
-                                  .filter(Boolean);
-                                updateColumnRule(col.id, { allowedText: vals });
-                              }}
-                              placeholder="Maintain % Last BD, N/A"
-                              className="flex-1 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {col.type === "date" && (
-                        <div className="flex items-center gap-3">
-                          <span className="text-zinc-700">Format tanggal:</span>
-                          <select
-                            value={
-                              (col.rule as { format?: string }).format ||
-                              "yyyy-MM-dd"
-                            }
-                            onChange={(e) =>
-                              updateColumnRule(col.id, {
-                                format: e.target.value as
-                                  | "yyyy-MM-dd"
-                                  | "dd/MM/yyyy"
-                                  | "MM/dd/yyyy"
-                                  | "dd-MM-yyyy"
-                                  | "yyyy/MM/dd",
-                              })
-                            }
-                            className="h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                          >
-                            <option value="yyyy-MM-dd">
-                              yyyy-MM-dd (2026-01-31)
-                            </option>
-                            <option value="dd/MM/yyyy">
-                              dd/MM/yyyy (31/01/2026)
-                            </option>
-                            <option value="MM/dd/yyyy">
-                              MM/dd/yyyy (01/31/2026)
-                            </option>
-                            <option value="dd-MM-yyyy">
-                              dd-MM-yyyy (31-01-2026)
-                            </option>
-                            <option value="yyyy/MM/dd">
-                              yyyy/MM/dd (2026/01/31)
-                            </option>
-                          </select>
-                        </div>
-                      )}
-
-                      {col.type === "list" && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-700">
-                            Daftar nilai valid (pisahkan koma):
-                          </span>
-                          <input
-                            type="text"
-                            value={(
-                              (col.rule as { values?: string[] }).values || []
-                            ).join(", ")}
-                            onChange={(e) => {
-                              const vals = e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter(Boolean);
-                              updateColumnRule(col.id, { values: vals });
-                            }}
-                            placeholder="Aktif, Nonaktif, Pending"
-                            className="flex-1 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                          />
-                        </div>
-                      )}
-
-                      {col.type === "text" && (
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-zinc-700">
-                              Panjang minimal:
-                            </span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={
-                                (col.rule as { minLength?: number })
-                                  .minLength ?? ""
-                              }
-                              onChange={(e) =>
-                                updateColumnRule(col.id, {
-                                  minLength:
-                                    e.target.value === ""
-                                      ? undefined
-                                      : Number(e.target.value),
-                                })
-                              }
-                              placeholder="0"
-                              className="w-20 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-zinc-700">
-                              Panjang maksimal:
-                            </span>
-                            <input
-                              type="number"
-                              min="0"
-                              value={
-                                (col.rule as { maxLength?: number })
-                                  .maxLength ?? ""
-                              }
-                              onChange={(e) =>
-                                updateColumnRule(col.id, {
-                                  maxLength:
-                                    e.target.value === ""
-                                      ? undefined
-                                      : Number(e.target.value),
-                                })
-                              }
-                              placeholder="255"
-                              className="w-20 h-8 px-2 bg-white border border-zinc-200 rounded text-xs"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  return (
+                    <SortableColumnRow
+                      key={col.id}
+                      col={col}
+                      index={idx}
+                      total={columns.length}
+                      isDuplicate={isDuplicate}
+                      isInvalidName={Boolean(isInvalidName)}
+                      onUpdate={(patch) => updateColumn(col.id, patch)}
+                      onUpdateRule={(patch) => updateColumnRule(col.id, patch)}
+                      onMove={(dir) => moveColumn(idx, dir)}
+                      onRemove={() => removeColumn(col.id)}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+            <DragOverlay>
+              {activeDragId ? (
+                (() => {
+                  const activeCol = columns.find((c) => c.id === activeDragId);
+                  return activeCol ? <DragOverlayColumnRow col={activeCol} /> : null;
+                })()
+              ) : null}
+            </DragOverlay>
+          </DndContext>
 
           {/* Live Preview Header CSV */}
           <div className="mt-4 pt-4 border-t border-zinc-100">

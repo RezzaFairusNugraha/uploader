@@ -3,18 +3,32 @@
 import { useEffect, useState, use, Suspense } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
 import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  Trash2,
-} from "lucide-react";
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
+import {
+  SortableColumnRow,
+  DragOverlayColumnRow,
+  type SortableColumnItemData,
+} from "@/components/SortableColumnRow";
 import { notify } from "@/lib/notify";
 import { diffTemplates } from "@/lib/templates/diff";
 import {
@@ -24,18 +38,12 @@ import {
   type TemplateDefinition,
   type TemplateDelimiter,
 } from "@/lib/templates/schema";
+import { arrayMove, generateStableColumnId } from "@/lib/templates/sortable";
+import { sortableAccessibility } from "@/lib/templates/sortableAccessibility";
 import type { TemplateVersionItem } from "@/lib/templates/versions";
 
 type RuleType = "text" | "integer" | "digits" | "decimal" | "date" | "list";
-
-interface ColumnDraft {
-  id: string;
-  name: string;
-  required: boolean;
-  type: RuleType;
-  rule: ColumnRule;
-  isExpanded: boolean;
-}
+type ColumnDraft = SortableColumnItemData;
 
 const defaultRules: Record<RuleType, ColumnRule> = {
   text: { type: "text" },
@@ -106,6 +114,34 @@ function EditTemplateForm({
     summary: string;
   } | null>(null);
   const [confirmedBreaking, setConfirmedBreaking] = useState(false);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setColumns((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+    setActiveDragId(null);
+  };
 
   useEffect(() => {
     const savedName = localStorage.getItem("uploader_user_name");
@@ -124,8 +160,8 @@ function EditTemplateForm({
         setDescription(data.description || "");
         setDelimiter(data.delimiter);
         setColumns(
-          data.columns.map((c, idx) => ({
-            id: `col-${idx}-${Date.now()}`,
+          data.columns.map((c) => ({
+            id: generateStableColumnId(),
             name: c.name,
             required: c.required,
             type: c.rule.type as RuleType,
@@ -155,7 +191,7 @@ function EditTemplateForm({
 
   const addColumn = () => {
     const newDraft: ColumnDraft = {
-      id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      id: generateStableColumnId(),
       name: `kolom_${columns.length + 1}`,
       required: true,
       type: "text",
@@ -434,157 +470,41 @@ function EditTemplateForm({
             </Button>
           </div>
 
-          <div className="space-y-3">
-            {columns.map((col, idx) => (
-              <div
-                key={col.id}
-                className="border border-zinc-200 bg-white rounded-lg transition-all"
-              >
-                <div className="p-3.5 flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-mono text-zinc-400 w-6">
-                    #{idx + 1}
-                  </span>
-
-                  <div className="flex-1 min-w-44">
-                    <input
-                      type="text"
-                      value={col.name}
-                      onChange={(e) =>
-                        updateColumn(col.id, { name: e.target.value })
-                      }
-                      className="w-full h-10 px-2.5 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                    />
-                  </div>
-
-                  <div className="w-36">
-                    <select
-                      value={col.type}
-                      onChange={(e) =>
-                        updateColumn(col.id, {
-                          type: e.target.value as RuleType,
-                        })
-                      }
-                      className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                    >
-                      <option value="text">Teks</option>
-                      <option value="digits">Digit Angka</option>
-                      <option value="integer">Bilangan Bulat</option>
-                      <option value="decimal">Desimal</option>
-                      <option value="date">Tanggal</option>
-                      <option value="list">Daftar Pilihan</option>
-                    </select>
-                  </div>
-
-                  <div className="w-32">
-                    <select
-                      value={col.required ? "wajib" : "opsional"}
-                      onChange={(e) =>
-                        updateColumn(col.id, {
-                          required: e.target.value === "wajib",
-                        })
-                      }
-                      className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
-                    >
-                      <option value="wajib">Wajib diisi</option>
-                      <option value="opsional">Boleh kosong</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-1 ml-auto">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateColumn(col.id, { isExpanded: !col.isExpanded })
-                      }
-                      className="p-2 text-zinc-500 hover:text-zinc-800 rounded hover:bg-zinc-100"
-                    >
-                      {col.isExpanded ? (
-                        <ChevronUp className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx === 0}
-                      onClick={() => moveColumn(idx, "up")}
-                      className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx === columns.length - 1}
-                      onClick={() => moveColumn(idx, "down")}
-                      className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 rounded hover:bg-zinc-100"
-                    >
-                      <ArrowDown className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeColumn(col.id)}
-                      className="p-2 text-zinc-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {col.isExpanded && (
-                  <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-sm space-y-3">
-                    {col.type === "digits" && (
-                      <div className="flex items-center gap-3">
-                        <span className="text-zinc-700">Panjang digit:</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="64"
-                          value={(col.rule as { length?: number }).length || 9}
-                          onChange={(e) =>
-                            updateColumnRule(col.id, {
-                              length: Number(e.target.value),
-                            })
-                          }
-                          className="w-20 h-9 px-2 bg-white border border-zinc-200 rounded text-sm"
-                        />
-                      </div>
-                    )}
-
-                    {col.type === "decimal" && (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <label className="flex items-center gap-1.5 text-zinc-700">
-                            <input
-                              type="checkbox"
-                              checked={(col.rule as { allowComma?: boolean }).allowComma ?? true}
-                              onChange={(e) =>
-                                updateColumnRule(col.id, {
-                                  allowComma: e.target.checked,
-                                })
-                              }
-                            />
-                            Boleh koma (,)
-                          </label>
-                          <label className="flex items-center gap-1.5 text-zinc-700">
-                            <input
-                              type="checkbox"
-                              checked={(col.rule as { allowDot?: boolean }).allowDot ?? true}
-                              onChange={(e) =>
-                                updateColumnRule(col.id, {
-                                  allowDot: e.target.checked,
-                                })
-                              }
-                            />
-                            Boleh titik (.)
-                          </label>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            accessibility={sortableAccessibility}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={columns.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-3">
+                {columns.map((col, idx) => (
+                  <SortableColumnRow
+                    key={col.id}
+                    col={col}
+                    index={idx}
+                    total={columns.length}
+                    onUpdate={(patch) => updateColumn(col.id, patch)}
+                    onUpdateRule={(patch) => updateColumnRule(col.id, patch)}
+                    onMove={(dir) => moveColumn(idx, dir)}
+                    onRemove={() => removeColumn(col.id)}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+            <DragOverlay>
+              {activeDragId ? (
+                (() => {
+                  const activeCol = columns.find((c) => c.id === activeDragId);
+                  return activeCol ? <DragOverlayColumnRow col={activeCol} /> : null;
+                })()
+              ) : null}
+            </DragOverlay>
+          </DndContext>
         </div>
 
         {/* Riwayat Versi Template Ini */}
