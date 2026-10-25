@@ -16,7 +16,7 @@ import Callout from "@/components/Callout";
 import PageHeader from "@/components/PageHeader";
 import { USER_COPY } from "@/lib/copy";
 import { notify } from "@/lib/notify";
-import type { MaskedSettings } from "@/lib/settings";
+import type { ConnectionState, MaskedSettings } from "@/lib/settings";
 import type { TemplateDefinition } from "@/lib/templates";
 import {
   buildDestinationFileName,
@@ -48,6 +48,7 @@ export default function UploadPage() {
   const [isValidating, setIsValidating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [settings, setSettings] = useState<MaskedSettings | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState | null>(null);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
@@ -75,8 +76,17 @@ export default function UploadPage() {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
-        setSettings(data.settings);
-        setIsSettingsConfigured(Boolean(data.configured));
+        if (data?.connection) {
+          setConnectionState(data.connection);
+          setIsSettingsConfigured(Boolean(data.configured));
+        } else if (data?.settings) {
+          setIsSettingsConfigured(Boolean(data.configured));
+        } else {
+          setIsSettingsConfigured(false);
+        }
+        if (data?.settings) {
+          setSettings(data.settings);
+        }
       })
       .catch(() => {
         setIsSettingsConfigured(false);
@@ -276,9 +286,13 @@ export default function UploadPage() {
       {!isSettingsConfigured && (
         <Callout
           type="warning"
-          title="Koneksi penyimpanan belum dikonfigurasi"
+          title="Koneksi penyimpanan belum siap"
         >
-          Koneksi Databricks belum lengkap. Silakan minta administrator melengkapi pengaturan agar berkas dapat dikirim.
+          {connectionState?.error === "database_tidak_terjangkau"
+            ? USER_COPY.connection.dbUnavailable
+            : connectionState?.missing && connectionState.missing.length > 0
+            ? USER_COPY.connection.buildIncompleteMessage(connectionState.missing)
+            : "Koneksi ke penyimpanan data belum lengkap. Minta admin melengkapinya di halaman Koneksi Databricks."}
         </Callout>
       )}
 

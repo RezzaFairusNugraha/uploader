@@ -1,5 +1,6 @@
 import { createDatabricksClient } from "@/lib/databricks";
-import { readDecryptedSettings } from "@/lib/settings";
+import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
+import { USER_COPY } from "@/lib/copy";
 import { templateRepository } from "./repository";
 import type { ProvisionStepStatus, TemplateDefinition } from "./schema";
 
@@ -20,9 +21,17 @@ export async function provisionTemplate(
     throw new Error(`Template dengan id '${templateId}' tidak ditemukan`);
   }
 
+  const conn = await getConnectionState();
+  if (conn.error) {
+    throw new Error(USER_COPY.connection.dbUnavailable);
+  }
+  if (!conn.ready) {
+    throw new Error(USER_COPY.connection.buildIncompleteMessage(conn.missing));
+  }
+
   const settings = await readDecryptedSettings();
   if (!settings || !settings.workspaceUrl || !settings.token) {
-    throw new Error("Pengaturan Databricks belum lengkap. Buka menu Pengaturan terlebih dahulu.");
+    throw new Error(USER_COPY.connection.buildIncompleteMessage(["alamat", "token"]));
   }
 
   const client = createDatabricksClient(settings.workspaceUrl, settings.token);

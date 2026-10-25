@@ -3,11 +3,13 @@ import {
   decryptToken,
   encryptToken,
   FakeInMemorySettingsStore,
+  getConnectionState,
   getEncryptionKey,
   isValidPathSegment,
   maskToken,
   normalizeUrl,
   setSettingsStore,
+  type SettingsStore,
 } from "./settings";
 
 describe("Settings & Encryption (SettingsStore)", () => {
@@ -96,7 +98,7 @@ describe("Settings & Encryption (SettingsStore)", () => {
     });
   });
 
-  describe("SettingsStore In-Memory Fake", () => {
+  describe("SettingsStore In-Memory Fake & getConnectionState", () => {
     it("mengembalikan null jika belum ada pengaturan yang disimpan", async () => {
       const store = new FakeInMemorySettingsStore(dummyKey);
       const decrypted = await store.readDecrypted();
@@ -155,6 +157,113 @@ describe("Settings & Encryption (SettingsStore)", () => {
       expect(updated?.lastTestResult?.steps[0].name).toBe(
         "Host dapat dijangkau dan token valid"
       );
+    });
+
+    it("getConnectionState: mendeteksi pengaturan lengkap", async () => {
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      setSettingsStore(store);
+
+      await store.save({
+        workspaceUrl: "dbc-test.cloud.databricks.com",
+        token: "dapi12345678",
+        catalog: "main",
+        schema: "default",
+      });
+
+      const conn = await getConnectionState();
+      expect(conn.ready).toBe(true);
+      expect(conn.missing.length).toBe(0);
+      expect(conn.error).toBeNull();
+    });
+
+    it("getConnectionState: mendeteksi setiap kolom yang belum diisi", async () => {
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      setSettingsStore(store);
+
+      await store.save({
+        workspaceUrl: "",
+        token: "dapi12345678",
+        catalog: "main",
+        schema: "default",
+      });
+
+      let conn = await getConnectionState();
+      expect(conn.ready).toBe(false);
+      expect(conn.missing).toContain("alamat");
+
+      await store.save({
+        workspaceUrl: "https://dbc-test.databricks.com",
+        token: "",
+        catalog: "main",
+        schema: "default",
+      });
+      conn = await getConnectionState();
+      expect(conn.ready).toBe(true);
+      expect(conn.missing.length).toBe(0);
+    });
+
+    it("getConnectionState: error database tidak dilaporkan sebagai missing", async () => {
+      const failingStore: SettingsStore = {
+        async readDecrypted() {
+          throw new Error("Neon timeout");
+        },
+        async readMasked() {
+          throw new Error("Neon timeout");
+        },
+        async save() {
+          throw new Error("Neon timeout");
+        },
+        async saveTestResult() {
+          throw new Error("Neon timeout");
+        },
+      };
+      setSettingsStore(failingStore);
+
+      const conn = await getConnectionState();
+      expect(conn.ready).toBe(false);
+      expect(conn.error).toBe("database_tidak_terjangkau");
+      expect(conn.missing.length).toBe(0);
+    });
+
+    it("partial update: menyimpan tanpa token tetap mempertahankan token lama", async () => {
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      setSettingsStore(store);
+
+      await store.save({
+        workspaceUrl: "https://dbc.databricks.com",
+        token: "dapi-initial-secret",
+        catalog: "cat_a",
+        schema: "sch_a",
+      });
+
+      await store.save({
+        workspaceUrl: "https://dbc.databricks.com",
+        catalog: "cat_b",
+        schema: "sch_b",
+      });
+
+      const decrypted = await store.readDecrypted();
+      expect(decrypted?.token).toBe("dapi-initial-secret");
+      expect(decrypted?.catalog).toBe("cat_b");
+      expect(decrypted?.schema).toBe("sch_b");
+    });
+
+    it("memotong spasi (trim) pada alamat, catalog, dan schema", async () => {
+      const store = new FakeInMemorySettingsStore(dummyKey);
+      setSettingsStore(store);
+
+      await store.save({
+        workspaceUrl: "   https://dbc.databricks.com/   ",
+        token: "  dapi-secret   ",
+        catalog: "   catalog_clean   ",
+        schema: "   schema_clean   ",
+      });
+
+      const decrypted = await store.readDecrypted();
+      expect(decrypted?.workspaceUrl).toBe("https://dbc.databricks.com");
+      expect(decrypted?.token).toBe("dapi-secret");
+      expect(decrypted?.catalog).toBe("catalog_clean");
+      expect(decrypted?.schema).toBe("schema_clean");
     });
   });
 });

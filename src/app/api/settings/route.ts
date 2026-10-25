@@ -2,17 +2,31 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import {
+  getConnectionState,
   readMaskedSettings,
   saveSettings,
   settingsFormSchema,
 } from "@/lib/settings";
 
+import { connection } from "next/server";
+
 export async function GET() {
+  await connection();
+  const conn = await getConnectionState();
   const settings = await readMaskedSettings();
-  if (!settings) {
-    return NextResponse.json({ configured: false });
+  if (conn.error) {
+    return NextResponse.json({
+      configured: false,
+      error: conn.error,
+      connection: conn,
+    });
   }
-  return NextResponse.json(settings);
+
+  return NextResponse.json({
+    configured: conn.ready,
+    settings,
+    connection: conn,
+  });
 }
 
 export async function POST(request: Request) {

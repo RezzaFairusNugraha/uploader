@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Lock, LogOut, ShieldAlert, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Lock, LogOut, ShieldAlert, XCircle } from "lucide-react";
 import Button from "@/components/Button";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
@@ -38,6 +38,7 @@ export default function DatabricksConnectionPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
   const checkAuth = async () => {
     try {
@@ -401,6 +402,51 @@ export default function DatabricksConnectionPage() {
           </Button>
         </div>
       </form>
+
+      {/* Detail Teknis Status Kolom */}
+      <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+          className="w-full flex items-center justify-between text-left text-sm font-semibold text-zinc-900"
+        >
+          <span>Detail teknis status isian</span>
+          {showTechnicalDetails ? (
+            <ChevronDown className="w-4 h-4 text-zinc-500" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-zinc-500" />
+          )}
+        </button>
+
+        {showTechnicalDetails && (
+          <div className="mt-4 pt-3 border-t border-zinc-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="p-3 bg-zinc-50 rounded-lg">
+              <div className="text-zinc-500 text-xs">Alamat Workspace</div>
+              <div className="font-semibold text-zinc-800 mt-1">
+                {Boolean(savedSettings?.workspaceUrl) ? "terisi" : "kosong"}
+              </div>
+            </div>
+            <div className="p-3 bg-zinc-50 rounded-lg">
+              <div className="text-zinc-500 text-xs">Token Akses</div>
+              <div className="font-semibold text-zinc-800 mt-1">
+                {Boolean(savedSettings?.hasToken) ? "terisi" : "kosong"}
+              </div>
+            </div>
+            <div className="p-3 bg-zinc-50 rounded-lg">
+              <div className="text-zinc-500 text-xs">Katalog (Catalog)</div>
+              <div className="font-semibold text-zinc-800 mt-1">
+                {Boolean(savedSettings?.catalog) ? "terisi" : "kosong"}
+              </div>
+            </div>
+            <div className="p-3 bg-zinc-50 rounded-lg">
+              <div className="text-zinc-500 text-xs">Skema (Schema)</div>
+              <div className="font-semibold text-zinc-800 mt-1">
+                {Boolean(savedSettings?.schema) ? "terisi" : "kosong"}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Hasil Uji Koneksi */}
       {testResult && (

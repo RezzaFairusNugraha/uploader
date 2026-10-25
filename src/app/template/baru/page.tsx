@@ -22,7 +22,8 @@ import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
 import { notify } from "@/lib/notify";
-import type { MaskedSettings } from "@/lib/settings";
+import { USER_COPY } from "@/lib/copy";
+import type { ConnectionState, MaskedSettings } from "@/lib/settings";
 import { inferFromCsv, inferFromParquet } from "@/lib/templates/infer";
 import {
   columnNameRegex,
@@ -67,6 +68,7 @@ export default function NewTemplatePage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"manual" | "import">("manual");
   const [settings, setSettings] = useState<MaskedSettings | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionState | null>(null);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
 
   const [name, setName] = useState("");
@@ -127,11 +129,16 @@ export default function NewTemplatePage() {
     fetch("/api/settings")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.settings) {
-          setSettings(data.settings);
+        if (data?.connection) {
+          setConnectionState(data.connection);
+          setIsSettingsConfigured(Boolean(data.configured));
+        } else if (data?.settings) {
           setIsSettingsConfigured(Boolean(data.configured));
         } else {
           setIsSettingsConfigured(false);
+        }
+        if (data?.settings) {
+          setSettings(data.settings);
         }
       })
       .catch(() => {
@@ -487,16 +494,20 @@ export default function NewTemplatePage() {
       )}
 
       {!isSettingsConfigured && (
-        <Callout type="warning" title="Pengaturan Databricks belum lengkap">
-          Lengkapi pengaturan URL workspace, token, katalog, dan skema di
-          halaman{" "}
-          <Link
-            href="/pengaturan"
-            className="underline font-semibold text-indigo-700"
-          >
-            Pengaturan
-          </Link>{" "}
-          sebelum membuat template baru.
+        <Callout type="warning" title="Koneksi penyimpanan belum siap">
+          {connectionState?.error === "database_tidak_terjangkau"
+            ? USER_COPY.connection.dbUnavailable
+            : connectionState?.missing && connectionState.missing.length > 0
+            ? USER_COPY.connection.buildIncompleteMessage(connectionState.missing)
+            : "Koneksi ke penyimpanan data belum lengkap. Minta admin melengkapinya di halaman Koneksi Databricks."}
+          <div className="mt-2">
+            <Link
+              href="/pengaturan"
+              className="underline font-semibold text-indigo-700"
+            >
+              Buka Koneksi Databricks
+            </Link>
+          </div>
         </Callout>
       )}
 

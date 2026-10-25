@@ -146,9 +146,10 @@ export const settingsFormSchema = z.object({
   workspaceUrl: z
     .string()
     .trim()
-    .min(1, "URL workspace wajib diisi")
-    .transform(normalizeUrl)
+    .optional()
+    .transform((val) => (val ? normalizeUrl(val) : ""))
     .refine((val) => {
+      if (!val) return true;
       try {
         const parsed = new URL(val);
         return parsed.protocol === "https:" && Boolean(parsed.hostname);
@@ -160,13 +161,13 @@ export const settingsFormSchema = z.object({
   catalog: z
     .string()
     .trim()
-    .min(1, "Katalog wajib diisi")
-    .refine(isValidPathSegment, "Katalog tidak boleh mengandung '/', '\\', atau '..'"),
+    .optional()
+    .refine((val) => !val || isValidPathSegment(val), "Katalog tidak boleh mengandung '/', '\\', atau '..'"),
   schema: z
     .string()
     .trim()
-    .min(1, "Skema wajib diisi")
-    .refine(isValidPathSegment, "Skema tidak boleh mengandung '/', '\\', atau '..'"),
+    .optional()
+    .refine((val) => !val || isValidPathSegment(val), "Skema tidak boleh mengandung '/', '\\', atau '..'"),
   volume: z.string().trim().optional(),
   subfolderCsv: z.string().trim().optional(),
   subfolderParquet: z.string().trim().optional(),
@@ -174,11 +175,61 @@ export const settingsFormSchema = z.object({
     .number()
     .int("Batas ukuran file harus berupa bilangan bulat")
     .positive("Batas ukuran file harus lebih besar dari 0")
-    .default(100),
+    .default(100)
+    .optional(),
   adminPasswordHash: z.string().optional(),
 });
 
 export type SettingsFormData = z.infer<typeof settingsFormSchema>;
+
+export type MissingConnectionField = "alamat" | "token" | "catalog" | "schema";
+
+export interface ConnectionState {
+  ready: boolean;
+  missing: MissingConnectionField[];
+  error: "database_tidak_terjangkau" | null;
+}
+
+export async function getConnectionState(): Promise<ConnectionState> {
+  let settings: DecryptedSettings | null = null;
+  try {
+    settings = await readDecryptedSettings();
+  } catch {
+    return {
+      ready: false,
+      missing: [],
+      error: "database_tidak_terjangkau",
+    };
+  }
+
+  if (!settings) {
+    return {
+      ready: false,
+      missing: ["alamat", "token", "catalog", "schema"],
+      error: null,
+    };
+  }
+
+  const missing: MissingConnectionField[] = [];
+  if (!settings.workspaceUrl || !settings.workspaceUrl.trim()) {
+    missing.push("alamat");
+  }
+  if (!settings.token || !settings.token.trim()) {
+    missing.push("token");
+  }
+  if (!settings.catalog || !settings.catalog.trim()) {
+    missing.push("catalog");
+  }
+  if (!settings.schema || !settings.schema.trim()) {
+    missing.push("schema");
+  }
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    error: null,
+  };
+}
 
 export interface SettingsStore {
   readDecrypted(): Promise<DecryptedSettings | null>;
@@ -242,19 +293,21 @@ export class DrizzleSettingsStore implements SettingsStore {
   async save(input: SettingsFormData): Promise<MaskedSettings> {
     const existing = await this.readDecrypted();
     const key = getEncryptionKey();
-    const normalizedWorkspaceUrl = normalizeUrl(input.workspaceUrl);
 
-    let tokenToEncrypt = input.token?.trim() || "";
-    if (!tokenToEncrypt) {
-      if (existing) {
-        tokenToEncrypt = existing.token;
-      } else {
-        throw new Error("Personal Access Token wajib diisi");
-      }
+    const workspaceUrlRaw = input.workspaceUrl !== undefined ? input.workspaceUrl : existing?.workspaceUrl || "";
+    const normalizedWorkspaceUrl = workspaceUrlRaw ? normalizeUrl(workspaceUrlRaw) : "";
+
+    const catalog = input.catalog !== undefined ? input.catalog.trim() : existing?.catalog || "";
+    const schema = input.schema !== undefined ? input.schema.trim() : existing?.schema || "";
+    const maxUploadMb = input.maxFileSizeMb !== undefined ? input.maxFileSizeMb : existing?.maxFileSizeMb || 100;
+
+    let tokenToEncrypt = input.token !== undefined && input.token.trim() !== "" ? input.token.trim() : existing?.token || "";
+    if (!tokenToEncrypt && !existing?.token) {
+      tokenToEncrypt = "";
     }
 
-    const encrypted = encryptToken(tokenToEncrypt, key);
-    const serializedToken = serializeEncryptedData(encrypted);
+    const encrypted = tokenToEncrypt ? encryptToken(tokenToEncrypt, key) : null;
+    const serializedToken = encrypted ? serializeEncryptedData(encrypted) : "";
     const db = createDb();
 
     const adminHash = input.adminPasswordHash ?? existing?.adminPasswordHash ?? null;
@@ -266,9 +319,9 @@ export class DrizzleSettingsStore implements SettingsStore {
           id: 1,
           workspaceUrl: normalizedWorkspaceUrl,
           tokenEncrypted: serializedToken,
-          catalog: input.catalog,
-          schema: input.schema,
-          maxUploadMb: input.maxFileSizeMb || 100,
+          catalog,
+          schema,
+          maxUploadMb,
           adminPasswordHash: adminHash,
           updatedAt: new Date(),
         })
@@ -277,9 +330,9 @@ export class DrizzleSettingsStore implements SettingsStore {
           set: {
             workspaceUrl: normalizedWorkspaceUrl,
             tokenEncrypted: serializedToken,
-            catalog: input.catalog,
-            schema: input.schema,
-            maxUploadMb: input.maxFileSizeMb || 100,
+            catalog,
+            schema,
+            maxUploadMb,
             adminPasswordHash: adminHash,
             updatedAt: new Date(),
           },
@@ -287,13 +340,14 @@ export class DrizzleSettingsStore implements SettingsStore {
     );
 
     return {
-      configured: true,
+      configured: Boolean(normalizedWorkspaceUrl && tokenToEncrypt && catalog && schema),
       workspaceUrl: normalizedWorkspaceUrl,
-      hasToken: true,
-      tokenMasked: maskToken(tokenToEncrypt),
-      catalog: input.catalog,
-      schema: input.schema,
-      maxFileSizeMb: input.maxFileSizeMb || 100,
+      hasToken: Boolean(tokenToEncrypt),
+      tokenMasked: tokenToEncrypt ? maskToken(tokenToEncrypt) : "",
+      catalog,
+      schema,
+      maxFileSizeMb: maxUploadMb,
+      hasAdminPassword: Boolean(adminHash),
       lastTestResult: this.lastTestResultMemory,
     };
   }
@@ -354,22 +408,26 @@ export class FakeInMemorySettingsStore implements SettingsStore {
   }
 
   async save(input: SettingsFormData): Promise<MaskedSettings> {
-    let token = input.token?.trim() || "";
-    if (!token) {
-      if (this.stored) {
-        token = decryptToken(this.stored.tokenEncrypted, this.getKey());
-      } else {
-        throw new Error("Personal Access Token wajib diisi");
-      }
+    const existing = await this.readDecrypted();
+    const workspaceUrlRaw = input.workspaceUrl !== undefined ? input.workspaceUrl : existing?.workspaceUrl || "";
+    const normalizedWorkspaceUrl = workspaceUrlRaw ? normalizeUrl(workspaceUrlRaw) : "";
+
+    const catalog = input.catalog !== undefined ? input.catalog.trim() : existing?.catalog || "";
+    const schema = input.schema !== undefined ? input.schema.trim() : existing?.schema || "";
+    const maxUploadMb = input.maxFileSizeMb !== undefined ? input.maxFileSizeMb : existing?.maxFileSizeMb || 100;
+
+    let token = input.token !== undefined && input.token.trim() !== "" ? input.token.trim() : existing?.token || "";
+    if (!token && !existing?.token) {
+      token = "";
     }
 
-    const tokenEncrypted = encryptToken(token, this.getKey());
+    const tokenEncrypted = token ? encryptToken(token, this.getKey()) : { iv: "", tag: "", data: "" };
     this.stored = {
-      workspaceUrl: normalizeUrl(input.workspaceUrl),
+      workspaceUrl: normalizedWorkspaceUrl,
       tokenEncrypted,
-      catalog: input.catalog,
-      schema: input.schema,
-      maxUploadMb: input.maxFileSizeMb || 100,
+      catalog,
+      schema,
+      maxUploadMb,
       lastTestResult: this.stored?.lastTestResult,
     };
 

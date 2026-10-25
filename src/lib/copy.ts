@@ -79,6 +79,21 @@ export const USER_COPY = {
     panduan: "Panduan",
     koneksi: "Koneksi Databricks",
   },
+  connection: {
+    dbUnavailable: "Database sedang tidak bisa dihubungi. Coba lagi sebentar.",
+    incompletePrefix: "Koneksi ke penyimpanan data belum lengkap: ",
+    incompleteSuffix: ". Minta admin melengkapinya di halaman Koneksi Databricks.",
+    labels: {
+      alamat: "alamat workspace",
+      token: "token akses",
+      catalog: "katalog",
+      schema: "skema",
+    },
+    buildIncompleteMessage(missing: ("alamat" | "token" | "catalog" | "schema")[]): string {
+      const labels = missing.map((m) => USER_COPY.connection.labels[m] || m);
+      return `${USER_COPY.connection.incompletePrefix}${labels.join(", ")} belum diisi${USER_COPY.connection.incompleteSuffix}`;
+    },
+  },
   upload: {
     step1Title: "1. Pilih Template",
     step1Desc: "Pilih template data yang akan Anda gunakan untuk memeriksa berkas.",

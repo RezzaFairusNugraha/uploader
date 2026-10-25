@@ -161,7 +161,7 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       const response = await uploadRoute(request);
       expect(response.status).toBe(400);
       const data = await response.json();
-      expect(data.error).toBe("Pengaturan Databricks belum dikonfigurasi");
+      expect(data.error).toContain("Koneksi ke penyimpanan data belum lengkap");
     });
 
     it("menolak template jika statusnya bukan 'aktif'", async () => {

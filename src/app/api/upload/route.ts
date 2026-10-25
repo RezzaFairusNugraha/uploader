@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createDatabricksClient } from "@/lib/databricks";
-import { readDecryptedSettings } from "@/lib/settings";
+import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
+import { USER_COPY } from "@/lib/copy";
 import {
   templateRepository,
   type TemplateDefinition,
@@ -29,10 +30,24 @@ export async function POST(request: Request) {
       );
     }
 
+    const conn = await getConnectionState();
+    if (conn.error) {
+      return NextResponse.json(
+        { error: USER_COPY.connection.dbUnavailable },
+        { status: 503 }
+      );
+    }
+    if (!conn.ready) {
+      return NextResponse.json(
+        { error: USER_COPY.connection.buildIncompleteMessage(conn.missing) },
+        { status: 400 }
+      );
+    }
+
     const settings = await readDecryptedSettings();
     if (!settings) {
       return NextResponse.json(
-        { error: "Pengaturan Databricks belum dikonfigurasi" },
+        { error: USER_COPY.connection.buildIncompleteMessage(["alamat", "token"]) },
         { status: 400 }
       );
     }
