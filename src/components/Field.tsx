@@ -24,7 +24,7 @@ export default function Field({
     <div className="w-full">
       <label
         htmlFor={id}
-        className="block text-sm font-medium text-zinc-700 mb-1.5"
+        className="block text-base font-medium text-zinc-700 mb-1.5"
       >
         {label}
       </label>
@@ -35,15 +35,15 @@ export default function Field({
         aria-describedby={
           error ? `${id}-error` : hint ? `${id}-hint` : undefined
         }
-        className={`h-10 w-full px-3 text-sm bg-white text-zinc-900 border rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 transition-colors disabled:bg-zinc-50 disabled:text-zinc-400 disabled:cursor-not-allowed ${borderStyles} ${className}`}
+        className={`min-h-[44px] h-11 w-full px-3 text-base bg-white text-zinc-900 border rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 transition-colors disabled:bg-zinc-50 disabled:text-zinc-400 disabled:cursor-not-allowed ${borderStyles} ${className}`}
         {...props}
       />
       {error ? (
-        <p id={`${id}-error`} className="mt-1 text-xs text-rose-600">
+        <p id={`${id}-error`} className="mt-1 text-sm text-rose-600">
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="mt-1 text-xs text-zinc-500">
+        <p id={`${id}-hint`} className="mt-1 text-sm text-zinc-500">
           {hint}
         </p>
       ) : null}

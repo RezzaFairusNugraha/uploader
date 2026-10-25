@@ -455,10 +455,10 @@ export default function NewTemplatePage() {
         <button
           type="button"
           onClick={() => setActiveTab("manual")}
-          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all ${
+          className={`flex-1 min-h-[44px] py-2 px-3 text-sm font-medium rounded-lg transition-all ${
             activeTab === "manual"
               ? "bg-white text-zinc-900 shadow-xs"
-              : "text-zinc-500 hover:text-zinc-900"
+              : "text-zinc-600 hover:text-zinc-900"
           }`}
         >
           Susun manual
@@ -466,10 +466,10 @@ export default function NewTemplatePage() {
         <button
           type="button"
           onClick={() => setActiveTab("import")}
-          className={`flex-1 py-1.5 px-3 text-xs font-medium rounded-lg transition-all ${
+          className={`flex-1 min-h-[44px] py-2 px-3 text-sm font-medium rounded-lg transition-all ${
             activeTab === "import"
               ? "bg-white text-zinc-900 shadow-xs"
-              : "text-zinc-500 hover:text-zinc-900"
+              : "text-zinc-600 hover:text-zinc-900"
           }`}
         >
           Impor dari file
@@ -509,18 +509,18 @@ export default function NewTemplatePage() {
               )}
             </div>
             <div>
-              <div className="text-sm font-semibold text-zinc-900">
+              <div className="text-base font-semibold text-zinc-900">
                 {isParsingFile
                   ? "Menganalisis berkas..."
                   : "Pilih atau seret berkas CSV / Parquet ke sini"}
               </div>
-              <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
+              <p className="text-sm text-zinc-500 mt-1 max-w-sm mx-auto">
                 Berkas dibaca langsung di peramban tanpa diunggah atau disimpan ke server.
               </p>
             </div>
             <div className="pt-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 rounded-lg border border-indigo-100">
-                <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg border border-indigo-100">
+                <FileSpreadsheet className="w-4 h-4" />
                 Mendukung .csv (maks 5.000 baris) & .parquet
               </span>
             </div>
@@ -549,7 +549,7 @@ export default function NewTemplatePage() {
       {/* Form Manual */}
       <form onSubmit={handleFinish} className="space-y-6">
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
             Informasi Template
           </h2>
 
@@ -580,8 +580,8 @@ export default function NewTemplatePage() {
           </div>
 
           {/* Live Preview Path Volume */}
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-xs text-zinc-600 font-mono space-y-1">
-            <div className="font-sans font-medium text-zinc-800 text-[13px] mb-1">
+          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-sm text-zinc-600 font-mono space-y-1">
+            <div className="font-sans font-medium text-zinc-800 text-sm mb-1">
               Pratinjau Lokasi Volume di Databricks:
             </div>
             <div>
@@ -595,7 +595,7 @@ export default function NewTemplatePage() {
           <div>
             <label
               htmlFor="template-description"
-              className="block text-sm font-medium text-zinc-700 mb-1.5"
+              className="block text-base font-medium text-zinc-700 mb-1.5"
             >
               Deskripsi (Opsional)
             </label>
@@ -605,34 +605,34 @@ export default function NewTemplatePage() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Keterangan isi dan tujuan data..."
               rows={2}
-              className="w-full px-3 py-2 text-sm bg-white text-zinc-900 border border-zinc-200 rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 transition"
+              className="w-full px-3 py-2.5 text-base bg-white text-zinc-900 border border-zinc-200 rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 transition"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">
+            <label className="block text-base font-medium text-zinc-700 mb-1.5">
               Pemisah CSV (Delimiter)
             </label>
             <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+              <label className="flex items-center gap-2 min-h-[44px] text-base text-zinc-700 cursor-pointer">
                 <input
                   type="radio"
                   name="delimiter"
                   value=";"
                   checked={delimiter === ";"}
                   onChange={() => setDelimiter(";")}
-                  className="text-indigo-600 focus:ring-indigo-600"
+                  className="w-4 h-4 text-indigo-600 focus:ring-indigo-600"
                 />
                 Titik koma (;)
               </label>
-              <label className="flex items-center gap-2 text-sm text-zinc-700 cursor-pointer">
+              <label className="flex items-center gap-2 min-h-[44px] text-base text-zinc-700 cursor-pointer">
                 <input
                   type="radio"
                   name="delimiter"
                   value=","
                   checked={delimiter === ","}
                   onChange={() => setDelimiter(",")}
-                  className="text-indigo-600 focus:ring-indigo-600"
+                  className="w-4 h-4 text-indigo-600 focus:ring-indigo-600"
                 />
                 Koma (,)
               </label>
@@ -644,10 +644,10 @@ export default function NewTemplatePage() {
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-900">
+              <h2 className="text-base font-semibold text-zinc-900">
                 Definisi Kolom
               </h2>
-              <p className="text-xs text-zinc-500 mt-0.5">
+              <p className="text-sm text-zinc-500 mt-0.5">
                 Tentukan nama, tipe data, dan aturan validasi per kolom.
               </p>
             </div>
@@ -711,15 +711,15 @@ export default function NewTemplatePage() {
           {/* Live Preview Header CSV */}
           <div className="mt-4 pt-4 border-t border-zinc-100">
             {importedInfo && (
-              <div className="mb-3 p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-xs text-amber-900">
+              <div className="mb-3 p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-sm text-amber-900">
                 <span className="font-medium">Catatan impor:</span> Aturan ditebak dari {importedInfo.sampleRowCount.toLocaleString("id-ID")} baris berkas <span className="font-semibold">{importedInfo.fileName}</span>, periksa sebelum menyimpan.
               </div>
             )}
 
-            <div className="text-xs font-semibold text-zinc-700 mb-1">
+            <div className="text-sm font-semibold text-zinc-700 mb-1">
               Pratinjau Baris Header CSV:
             </div>
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 font-mono text-xs text-zinc-800 overflow-x-auto whitespace-nowrap">
+            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 font-mono text-sm text-zinc-800 overflow-x-auto whitespace-nowrap">
               {headerPreview || "(Belum ada kolom)"}
             </div>
           </div>
@@ -748,10 +748,10 @@ export default function NewTemplatePage() {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-zinc-200 max-w-lg w-full p-6 shadow-xl space-y-5 animate-in fade-in zoom-in-95">
             <div>
-              <h3 className="text-base font-semibold text-zinc-900">
+              <h3 className="text-lg font-semibold text-zinc-900">
                 Memproses Template
               </h3>
-              <p className="text-xs text-zinc-500 mt-0.5">
+              <p className="text-sm text-zinc-500 mt-0.5">
                 Mempersiapkan volume dan folder di Unity Catalog Databricks.
               </p>
             </div>
@@ -759,18 +759,18 @@ export default function NewTemplatePage() {
             {/* Timeline Langkah */}
             <div className="space-y-3">
               {provisionSteps?.map((step, idx) => (
-                <div key={idx} className="flex items-start gap-3 text-xs">
+                <div key={idx} className="flex items-start gap-3 text-sm">
                   {step.status === "success" && (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
                   )}
                   {step.status === "running" && (
-                    <Loader2 className="w-4 h-4 text-indigo-600 animate-spin mt-0.5 shrink-0" />
+                    <Loader2 className="w-5 h-5 text-indigo-600 animate-spin mt-0.5 shrink-0" />
                   )}
                   {step.status === "error" && (
-                    <XCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                    <XCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
                   )}
                   {step.status === "pending" && (
-                    <div className="w-4 h-4 rounded-full border border-zinc-300 mt-0.5 shrink-0" />
+                    <div className="w-5 h-5 rounded-full border border-zinc-300 mt-0.5 shrink-0" />
                   )}
 
                   <div className="flex-1">
@@ -800,9 +800,9 @@ export default function NewTemplatePage() {
 
             {/* Penanganan Konflik Volume Sudah Ada */}
             {volumeExistsError && currentTemplateId && (
-              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-3">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm space-y-3">
                 <div className="flex items-start gap-2 text-amber-900 font-medium">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>{volumeExistsError.message}</div>
                 </div>
                 <div className="flex items-center gap-2 pt-1">

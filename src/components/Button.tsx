@@ -32,7 +32,7 @@ export default function Button({
     <button
       disabled={isButtonDisabled}
       aria-busy={isLoading}
-      className={`inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 min-h-[44px] h-11 px-4 rounded-lg text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${variantStyles[variant]} ${className}`}
       {...props}
     >
       {isLoading ? <Loader2 className="w-4 h-4 animate-spin text-current" /> : null}

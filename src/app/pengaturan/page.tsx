@@ -224,10 +224,10 @@ export default function DatabricksConnectionPage() {
           <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto">
             <Lock className="w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold text-zinc-900">
+          <h1 className="text-2xl font-bold text-zinc-900">
             Akses Khusus Administrator
           </h1>
-          <p className="text-sm text-zinc-500">
+          <p className="text-base text-zinc-500">
             {hasPassword
               ? "Masukkan kata sandi admin untuk mengubah pengaturan koneksi Databricks."
               : "Buat kata sandi admin pertama untuk mengamankan koneksi penyimpanan."}
@@ -281,7 +281,7 @@ export default function DatabricksConnectionPage() {
 
       <form onSubmit={handleSave} className="space-y-6">
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+          <h2 className="text-lg font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
             Kredensial Workspace & Akses
           </h2>
 
@@ -297,7 +297,7 @@ export default function DatabricksConnectionPage() {
           />
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1.5">
+            <label className="block text-base font-medium text-zinc-700 mb-1.5">
               Personal Access Token
             </label>
             {savedSettings?.hasToken && !isChangingToken ? (
@@ -306,7 +306,7 @@ export default function DatabricksConnectionPage() {
                   type="text"
                   disabled
                   value={savedSettings.tokenMasked}
-                  className="flex-1 h-11 px-3 text-base bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-500 font-mono"
+                  className="flex-1 min-h-[44px] h-11 px-3 text-base bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-500 font-mono"
                 />
                 <Button
                   type="button"
@@ -324,7 +324,7 @@ export default function DatabricksConnectionPage() {
                   value={formData.token}
                   onChange={handleChange}
                   placeholder="dapi..."
-                  className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
+                  className="w-full min-h-[44px] h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 font-mono"
                   required={!savedSettings?.hasToken}
                 />
                 {savedSettings?.hasToken && (
@@ -334,21 +334,21 @@ export default function DatabricksConnectionPage() {
                       setIsChangingToken(false);
                       setFormData((prev) => ({ ...prev, token: "" }));
                     }}
-                    className="text-xs text-zinc-500 hover:text-zinc-800 underline"
+                    className="min-h-[44px] inline-flex items-center text-sm text-zinc-500 hover:text-zinc-800 underline"
                   >
                     Batal ganti token
                   </button>
                 )}
               </div>
             )}
-            <p className="text-xs text-zinc-500 mt-1">
+            <p className="text-sm text-zinc-500 mt-1">
               Token dienkripsi dengan AES-256-GCM dan tidak pernah ditampilkan penuh.
             </p>
           </div>
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
+          <h2 className="text-lg font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
             Lokasi Unity Catalog
           </h2>
 
@@ -408,38 +408,38 @@ export default function DatabricksConnectionPage() {
         <button
           type="button"
           onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-          className="w-full flex items-center justify-between text-left text-sm font-semibold text-zinc-900"
+          className="w-full min-h-[44px] py-2 flex items-center justify-between text-left text-base font-semibold text-zinc-900"
         >
           <span>Detail teknis status isian</span>
           {showTechnicalDetails ? (
-            <ChevronDown className="w-4 h-4 text-zinc-500" />
+            <ChevronDown className="w-5 h-5 text-zinc-500" />
           ) : (
-            <ChevronRight className="w-4 h-4 text-zinc-500" />
+            <ChevronRight className="w-5 h-5 text-zinc-500" />
           )}
         </button>
 
         {showTechnicalDetails && (
-          <div className="mt-4 pt-3 border-t border-zinc-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <div className="mt-4 pt-3 border-t border-zinc-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-base">
             <div className="p-3 bg-zinc-50 rounded-lg">
-              <div className="text-zinc-500 text-xs">Alamat Workspace</div>
+              <div className="text-zinc-500 text-sm">Alamat Workspace</div>
               <div className="font-semibold text-zinc-800 mt-1">
                 {Boolean(savedSettings?.workspaceUrl) ? "terisi" : "kosong"}
               </div>
             </div>
             <div className="p-3 bg-zinc-50 rounded-lg">
-              <div className="text-zinc-500 text-xs">Token Akses</div>
+              <div className="text-zinc-500 text-sm">Token Akses</div>
               <div className="font-semibold text-zinc-800 mt-1">
                 {Boolean(savedSettings?.hasToken) ? "terisi" : "kosong"}
               </div>
             </div>
             <div className="p-3 bg-zinc-50 rounded-lg">
-              <div className="text-zinc-500 text-xs">Katalog (Catalog)</div>
+              <div className="text-zinc-500 text-sm">Katalog (Catalog)</div>
               <div className="font-semibold text-zinc-800 mt-1">
                 {Boolean(savedSettings?.catalog) ? "terisi" : "kosong"}
               </div>
             </div>
             <div className="p-3 bg-zinc-50 rounded-lg">
-              <div className="text-zinc-500 text-xs">Skema (Schema)</div>
+              <div className="text-zinc-500 text-sm">Skema (Schema)</div>
               <div className="font-semibold text-zinc-800 mt-1">
                 {Boolean(savedSettings?.schema) ? "terisi" : "kosong"}
               </div>
@@ -451,7 +451,7 @@ export default function DatabricksConnectionPage() {
       {/* Hasil Uji Koneksi */}
       {testResult && (
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-          <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-2">
+          <h2 className="text-lg font-semibold text-zinc-900 border-b border-zinc-100 pb-2">
             Hasil Uji Koneksi
           </h2>
 
@@ -459,7 +459,7 @@ export default function DatabricksConnectionPage() {
             {testResult.steps.map((st, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-3 text-sm p-3 rounded-lg border border-zinc-100 bg-zinc-50/50"
+                className="flex items-start gap-3 text-base p-3.5 rounded-lg border border-zinc-100 bg-zinc-50/50"
               >
                 {st.success ? (
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
@@ -469,10 +469,10 @@ export default function DatabricksConnectionPage() {
                 <div className="space-y-0.5">
                   <div className="font-semibold text-zinc-900">{st.name}</div>
                   {st.message && (
-                    <div className="text-zinc-600">{st.message}</div>
+                    <div className="text-zinc-600 text-sm">{st.message}</div>
                   )}
                   {st.fix && (
-                    <div className="text-rose-600 text-xs font-mono">
+                    <div className="text-rose-600 text-sm font-mono">
                       {st.fix}
                     </div>
                   )}

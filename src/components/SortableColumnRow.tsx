@@ -92,7 +92,7 @@ export function SortableColumnRow({
           <GripVertical className="w-5 h-5" />
         </button>
 
-        <span className="text-sm font-mono text-zinc-400 w-6">
+        <span className="text-base font-mono text-zinc-400 w-6">
           #{index + 1}
         </span>
 
@@ -102,20 +102,20 @@ export function SortableColumnRow({
             value={col.name}
             onChange={(e) => onUpdate({ name: e.target.value })}
             placeholder="nama_kolom"
-            className="w-full h-10 px-2.5 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600 font-mono"
+            className="w-full min-h-[44px] h-11 px-3 text-base bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600 font-mono"
           />
           {col.renamed && col.originalName && (
-            <div className="text-[11px] text-amber-600 mt-1">
+            <div className="text-sm text-amber-600 mt-1">
               Disesuaikan dari: <span className="font-mono">{col.originalName}</span>
             </div>
           )}
         </div>
 
-        <div className="w-36">
+        <div className="w-40">
           <select
             value={col.type}
             onChange={(e) => onUpdate({ type: e.target.value as RuleType })}
-            className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
+            className="w-full min-h-[44px] h-11 px-3 text-base bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
           >
             <option value="text">Teks</option>
             <option value="digits">Digit Angka</option>
@@ -126,11 +126,11 @@ export function SortableColumnRow({
           </select>
         </div>
 
-        <div className="w-32">
+        <div className="w-36">
           <select
             value={col.required ? "wajib" : "opsional"}
             onChange={(e) => onUpdate({ required: e.target.value === "wajib" })}
-            className="w-full h-10 px-2 text-sm bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
+            className="w-full min-h-[44px] h-11 px-3 text-base bg-white border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-600"
           >
             <option value="wajib">Wajib diisi</option>
             <option value="opsional">Boleh kosong</option>
@@ -183,7 +183,7 @@ export function SortableColumnRow({
       </div>
 
       {col.isExpanded && (
-        <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-sm space-y-3">
+        <div className="p-4 bg-zinc-50/70 border-t border-zinc-200 text-base space-y-3">
           {col.type === "digits" && (
             <div className="flex items-center gap-3">
               <span className="text-zinc-700 font-medium">Panjang digit:</span>
@@ -197,7 +197,7 @@ export function SortableColumnRow({
                     length: Number(e.target.value),
                   })
                 }
-                className="w-20 h-9 px-2 bg-white border border-zinc-200 rounded text-sm"
+                className="w-24 min-h-[44px] h-11 px-3 bg-white border border-zinc-200 rounded text-base"
               />
             </div>
           )}
@@ -205,7 +205,7 @@ export function SortableColumnRow({
           {col.type === "decimal" && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-1.5 text-zinc-700">
+                <label className="flex items-center gap-1.5 min-h-[44px] text-base text-zinc-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={(col.rule as { allowComma?: boolean }).allowComma ?? true}
@@ -214,10 +214,11 @@ export function SortableColumnRow({
                         allowComma: e.target.checked,
                       })
                     }
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-600"
                   />
                   Boleh koma (,)
                 </label>
-                <label className="flex items-center gap-1.5 text-zinc-700">
+                <label className="flex items-center gap-1.5 min-h-[44px] text-base text-zinc-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={(col.rule as { allowDot?: boolean }).allowDot ?? true}
@@ -226,10 +227,11 @@ export function SortableColumnRow({
                         allowDot: e.target.checked,
                       })
                     }
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-600"
                   />
                   Boleh titik (.)
                 </label>
-                <label className="flex items-center gap-1.5 text-zinc-700">
+                <label className="flex items-center gap-1.5 min-h-[44px] text-base text-zinc-700 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={(col.rule as { allowScientific?: boolean }).allowScientific ?? true}
@@ -238,6 +240,7 @@ export function SortableColumnRow({
                         allowScientific: e.target.checked,
                       })
                     }
+                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-600"
                   />
                   Boleh notasi ilmiah
                 </label>
@@ -256,7 +259,7 @@ export function SortableColumnRow({
                     values: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
                   })
                 }
-                className="w-full h-9 px-2.5 bg-white border border-zinc-200 rounded text-sm"
+                className="w-full min-h-[44px] h-11 px-3 bg-white border border-zinc-200 rounded text-base"
               />
             </div>
           )}
@@ -270,13 +273,13 @@ export function DragOverlayColumnRow({ col }: { col: SortableColumnItemData }) {
   return (
     <div className="border border-indigo-500 rounded-lg bg-white shadow-lg p-3.5 flex items-center gap-3 opacity-95">
       <GripVertical className="w-5 h-5 text-indigo-600" />
-      <span className="text-sm font-mono text-zinc-900 font-semibold">
+      <span className="text-base font-mono text-zinc-900 font-semibold">
         {col.name || "Kolom"}
       </span>
-      <span className="text-xs px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 uppercase">
+      <span className="text-sm px-2.5 py-1 rounded bg-zinc-100 text-zinc-700 uppercase font-medium">
         {col.type}
       </span>
-      <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-medium ml-auto">
+      <span className="text-sm px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 font-medium ml-auto">
         {col.required ? "Wajib" : "Boleh kosong"}
       </span>
     </div>

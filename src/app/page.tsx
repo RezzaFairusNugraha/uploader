@@ -299,17 +299,17 @@ export default function UploadPage() {
       {/* Langkah 1: Template */}
       <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-900">
+          <h2 className="text-xl font-semibold text-zinc-900">
             {USER_COPY.upload.step1Title}
           </h2>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="text-base text-zinc-500 mt-1">
             {USER_COPY.upload.step1Desc}
           </p>
         </div>
 
         {templates.length === 0 ? (
           <div className="border border-dashed border-zinc-200 rounded-xl p-6 text-center space-y-3">
-            <p className="text-sm text-zinc-500">
+            <p className="text-base text-zinc-500">
               {USER_COPY.upload.noTemplates}
             </p>
             <div>
@@ -353,10 +353,10 @@ export default function UploadPage() {
       {/* Langkah 2: Berkas */}
       <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
         <div>
-          <h2 className="text-lg font-semibold text-zinc-900">
+          <h2 className="text-xl font-semibold text-zinc-900">
             {USER_COPY.upload.step2Title}
           </h2>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="text-base text-zinc-500 mt-1">
             {USER_COPY.upload.step2Desc}
           </p>
         </div>
@@ -367,7 +367,7 @@ export default function UploadPage() {
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-base font-semibold text-emerald-950">
+              <div className="text-lg font-semibold text-emerald-950">
                 Berkas Berhasil Terkirim
               </div>
               <div className="text-sm font-mono text-emerald-800 mt-2 break-all bg-white/80 p-3 rounded-lg border border-emerald-200 inline-block text-left">
@@ -439,8 +439,9 @@ export default function UploadPage() {
             <button
               type="button"
               onClick={resetUploadState}
-              className="text-zinc-400 hover:text-zinc-600 p-2 rounded-md hover:bg-zinc-200/60"
+              className="min-h-[44px] min-w-[44px] text-zinc-400 hover:text-zinc-600 p-2.5 rounded-lg hover:bg-zinc-200/60 flex items-center justify-center"
               title="Hapus berkas"
+              aria-label="Hapus berkas"
             >
               <X className="w-5 h-5" />
             </button>
@@ -452,16 +453,16 @@ export default function UploadPage() {
       {file && !uploadedPath && (
         <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900">
+            <h2 className="text-xl font-semibold text-zinc-900">
               {USER_COPY.upload.step3Title}
             </h2>
-            <p className="text-sm text-zinc-500 mt-1">
+            <p className="text-base text-zinc-500 mt-1">
               {USER_COPY.upload.step3Desc}
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-zinc-700">
+            <label className="block text-base font-medium text-zinc-700">
               {USER_COPY.upload.uploaderNameLabel}
             </label>
             <input
@@ -469,12 +470,12 @@ export default function UploadPage() {
               value={uploaderName}
               onChange={(e) => handleUploaderNameChange(e.target.value)}
               placeholder={USER_COPY.upload.uploaderNamePlaceholder}
-              className="w-full sm:w-80 h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              className="w-full sm:w-80 min-h-[44px] h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
             />
           </div>
 
           {isValidating && (
-            <div className="border border-zinc-200 bg-white rounded-xl p-6 text-center text-sm text-zinc-500">
+            <div className="border border-zinc-200 bg-white rounded-xl p-6 text-center text-base text-zinc-500">
               Sedang memeriksa berkas Anda di peramban...
             </div>
           )}
@@ -489,7 +490,7 @@ export default function UploadPage() {
                       <div className="text-base font-semibold text-emerald-950">
                         Pemeriksaan berhasil: berkas siap dikirim
                       </div>
-                      <div className="text-sm text-emerald-800">
+                      <div className="text-base text-emerald-800">
                         Total {validationResult.summary.rowCount.toLocaleString("id-ID")} baris data dan{" "}
                         {validationResult.summary.columnCount} kolom telah diverifikasi.
                       </div>
@@ -504,7 +505,7 @@ export default function UploadPage() {
                       <div className="text-base font-semibold text-rose-950">
                         Ditemukan {validationResult.summary.totalErrors} kendala pada berkas
                       </div>
-                      <div className="text-sm text-rose-800">
+                      <div className="text-base text-rose-800">
                         Silakan periksa dan perbaiki kendala di bawah ini sebelum mengirim ke penyimpanan.
                       </div>
                     </div>

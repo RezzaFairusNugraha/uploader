@@ -52,7 +52,7 @@ describe("Komponen Desain Shell", () => {
     expect(loading).toContain("disabled");
   });
 
-  it("merender Field dengan label, input 40px, hint, dan error", () => {
+  it("merender Field dengan label, input 44px, hint, dan error", () => {
     const field = renderToStaticMarkup(
       <Field
         id="nama"
@@ -62,7 +62,7 @@ describe("Komponen Desain Shell", () => {
       />
     );
     expect(field).toContain("Nama Lengkap");
-    expect(field).toContain("h-10");
+    expect(field).toContain("h-11");
     expect(field).toContain("Gunakan nama resmi");
 
     const fieldError = renderToStaticMarkup(
