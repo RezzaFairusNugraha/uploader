@@ -8,6 +8,13 @@
       "when": 1792723185854,
       "tag": "0000_mean_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792983146079,
+      "tag": "0001_natural_genesis",
+      "breakpoints": true
     }
   ]
 }

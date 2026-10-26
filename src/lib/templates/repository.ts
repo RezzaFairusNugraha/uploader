@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { createDb, withDbRetry } from "@/db";
 import { templates } from "@/db/schema";
 import {
@@ -23,6 +23,7 @@ export interface TemplateRepository {
     status: TemplateStatus
   ): Promise<TemplateDefinition>;
   archive(id: string): Promise<TemplateDefinition>;
+  markDeleted(id: string, deletedBy: string): Promise<TemplateDefinition>;
 }
 
 function mapRowToTemplate(row: typeof templates.$inferSelect): TemplateDefinition {
@@ -38,6 +39,9 @@ function mapRowToTemplate(row: typeof templates.$inferSelect): TemplateDefinitio
       schema: row.schema,
       name: row.volumeName,
     },
+    volumeCreatedByApp: row.volumeCreatedByApp ?? false,
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    deletedBy: row.deletedBy ?? null,
     version: row.version,
     columns: row.columns as ColumnDefinition[],
     createdAt: row.createdAt.toISOString(),
@@ -51,7 +55,11 @@ export class DrizzleTemplateRepository implements TemplateRepository {
   async list(): Promise<TemplateDefinition[]> {
     const db = createDb();
     const rows = await withDbRetry(() =>
-      db.select().from(templates).orderBy(desc(templates.createdAt))
+      db
+        .select()
+        .from(templates)
+        .where(isNull(templates.deletedAt))
+        .orderBy(desc(templates.createdAt))
     );
     return rows.map(mapRowToTemplate);
   }
@@ -68,7 +76,11 @@ export class DrizzleTemplateRepository implements TemplateRepository {
   async getBySlug(slug: string): Promise<TemplateDefinition | null> {
     const db = createDb();
     const rows = await withDbRetry(() =>
-      db.select().from(templates).where(eq(templates.slug, slug)).limit(1)
+      db
+        .select()
+        .from(templates)
+        .where(and(eq(templates.slug, slug), isNull(templates.deletedAt)))
+        .limit(1)
     );
     if (rows.length === 0) return null;
     return mapRowToTemplate(rows[0]);
@@ -95,6 +107,9 @@ export class DrizzleTemplateRepository implements TemplateRepository {
           catalog: validated.volume.catalog,
           schema: validated.volume.schema,
           volumeName: validated.volume.name,
+          volumeCreatedByApp: validated.volumeCreatedByApp ?? false,
+          deletedAt: validated.deletedAt ? new Date(validated.deletedAt) : null,
+          deletedBy: validated.deletedBy ?? null,
           version: validated.version,
           columns: validated.columns,
           createdAt: new Date(validated.createdAt),
@@ -149,6 +164,9 @@ export class DrizzleTemplateRepository implements TemplateRepository {
           catalog: validated.volume.catalog,
           schema: validated.volume.schema,
           volumeName: validated.volume.name,
+          volumeCreatedByApp: validated.volumeCreatedByApp ?? false,
+          deletedAt: validated.deletedAt ? new Date(validated.deletedAt) : null,
+          deletedBy: validated.deletedBy ?? null,
           version: newVersion,
           columns: validated.columns,
           updatedAt: now,
@@ -206,15 +224,46 @@ export class DrizzleTemplateRepository implements TemplateRepository {
   async archive(id: string): Promise<TemplateDefinition> {
     return this.updateStatus(id, "diarsipkan");
   }
+
+  async markDeleted(id: string, deletedBy: string): Promise<TemplateDefinition> {
+    const current = await this.get(id);
+    if (!current) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    const newVersion = current.version + 1;
+    const now = new Date();
+
+    const db = createDb();
+    const rows = await withDbRetry(() =>
+      db
+        .update(templates)
+        .set({
+          status: "dihapus",
+          deletedAt: now,
+          deletedBy,
+          version: newVersion,
+          updatedAt: now,
+        })
+        .where(eq(templates.id, id))
+        .returning()
+    );
+
+    if (rows.length === 0) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    return mapRowToTemplate(rows[0]);
+  }
 }
 
 export class FakeInMemoryTemplateRepository implements TemplateRepository {
   private items = new Map<string, TemplateDefinition>();
 
   async list(): Promise<TemplateDefinition[]> {
-    const list = Array.from(this.items.values()).map((item) =>
-      TemplateDefinitionSchema.parse(item)
-    );
+    const list = Array.from(this.items.values())
+      .filter((item) => !item.deletedAt && item.status !== "dihapus")
+      .map((item) => TemplateDefinitionSchema.parse(item));
     return list.sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -229,7 +278,7 @@ export class FakeInMemoryTemplateRepository implements TemplateRepository {
 
   async getBySlug(slug: string): Promise<TemplateDefinition | null> {
     for (const item of this.items.values()) {
-      if (item.slug === slug) {
+      if (item.slug === slug && !item.deletedAt && item.status !== "dihapus") {
         return TemplateDefinitionSchema.parse(item);
       }
     }
@@ -309,6 +358,26 @@ export class FakeInMemoryTemplateRepository implements TemplateRepository {
   async archive(id: string): Promise<TemplateDefinition> {
     return this.updateStatus(id, "diarsipkan");
   }
+
+  async markDeleted(id: string, deletedBy: string): Promise<TemplateDefinition> {
+    const current = this.items.get(id);
+    if (!current) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    const updated: TemplateDefinition = {
+      ...current,
+      status: "dihapus",
+      deletedAt: new Date().toISOString(),
+      deletedBy,
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const validated = TemplateDefinitionSchema.parse(updated);
+    this.items.set(id, validated);
+    return validated;
+  }
 }
 
 let activeTemplateRepository: TemplateRepository = new DrizzleTemplateRepository();
@@ -342,5 +411,8 @@ export const templateRepository: TemplateRepository = {
   },
   archive(id: string) {
     return getTemplateRepository().archive(id);
+  },
+  markDeleted(id: string, deletedBy: string) {
+    return getTemplateRepository().markDeleted(id, deletedBy);
   },
 };

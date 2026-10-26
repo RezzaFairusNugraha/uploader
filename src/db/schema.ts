@@ -1,4 +1,5 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const appSettings = pgTable("app_settings", {
   id: integer("id").primaryKey().default(1),
@@ -14,27 +15,38 @@ export const appSettings = pgTable("app_settings", {
     .notNull(),
 });
 
-export const templates = pgTable("templates", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  description: text("description").notNull().default(""),
-  delimiter: text("delimiter").notNull().default(";"),
-  status: text("status").notNull().default("membuat"),
-  catalog: text("catalog").notNull(),
-  schema: text("schema").notNull(),
-  volumeName: text("volume_name").notNull(),
-  version: integer("version").notNull().default(1),
-  columns: jsonb("columns").notNull(),
-  createdBy: text("created_by"),
-  updatedBy: text("updated_by"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const templates = pgTable(
+  "templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description").notNull().default(""),
+    delimiter: text("delimiter").notNull().default(";"),
+    status: text("status").notNull().default("membuat"),
+    catalog: text("catalog").notNull(),
+    schema: text("schema").notNull(),
+    volumeName: text("volume_name").notNull(),
+    volumeCreatedByApp: boolean("volume_created_by_app").notNull().default(false),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: text("deleted_by"),
+    version: integer("version").notNull().default(1),
+    columns: jsonb("columns").notNull(),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("templates_slug_active_unique")
+      .on(table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
+  ]
+);
 
 export const templateVersions = pgTable(
   "template_versions",

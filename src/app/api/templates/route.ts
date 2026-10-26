@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       delimiter,
       status: "membuat",
       volume,
+      volumeCreatedByApp: false,
       version: 1,
       createdAt: now,
       updatedAt: now,

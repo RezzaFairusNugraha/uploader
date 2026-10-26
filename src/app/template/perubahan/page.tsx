@@ -85,7 +85,11 @@ export default function TemplateChangesPage() {
                     {ver.changedBy || "-"}
                   </td>
                   <td className="py-3 px-4">
-                    {ver.isBreaking ? (
+                    {ver.snapshot.status === "dihapus" ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                        Dihapus
+                      </span>
+                    ) : ver.isBreaking ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
                         Memerlukan Perhatian
                       </span>
@@ -96,7 +100,9 @@ export default function TemplateChangesPage() {
                     )}
                   </td>
                   <td className="py-3 px-4 text-zinc-600 max-w-sm truncate">
-                    {ver.changeSummary}
+                    {ver.snapshot.status === "dihapus"
+                      ? `Dihapus permanen oleh ${ver.changedBy}`
+                      : ver.changeSummary}
                   </td>
                 </tr>
               ))}

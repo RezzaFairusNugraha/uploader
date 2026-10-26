@@ -67,6 +67,7 @@ export async function provisionTemplate(
   const catalog = template.volume.catalog;
   const schema = template.volume.schema;
   const volumeName = template.volume.name;
+  let volumeCreatedByApp = false;
 
   try {
     steps[1].status = "running";
@@ -85,6 +86,7 @@ export async function provisionTemplate(
           error: `Volume '${volumeName}' sudah ada. Anda dapat menggunakan volume yang sudah ada atau mengganti slug template.`,
         };
       }
+      volumeCreatedByApp = false;
       steps[1].status = "success";
       steps[1].message = "Menggunakan volume yang sudah ada.";
     } else {
@@ -111,6 +113,7 @@ export async function provisionTemplate(
           error: steps[1].message,
         };
       }
+      volumeCreatedByApp = true;
       steps[1].status = "success";
     }
 
@@ -147,7 +150,10 @@ export async function provisionTemplate(
     steps[3].status = "success";
 
     steps[4].status = "running";
-    template = await templateRepository.update(templateId, { status: "aktif" });
+    template = await templateRepository.update(templateId, {
+      status: "aktif",
+      volumeCreatedByApp,
+    });
     steps[4].status = "success";
 
     return {

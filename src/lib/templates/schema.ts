@@ -6,6 +6,7 @@ export const TemplateStatusSchema = z.enum([
   "aktif",
   "gagal",
   "diarsipkan",
+  "dihapus",
 ]);
 export type TemplateStatus = z.infer<typeof TemplateStatusSchema>;
 
@@ -126,6 +127,9 @@ export const TemplateDefinitionSchema = z
     delimiter: TemplateDelimiterSchema,
     status: TemplateStatusSchema,
     volume: VolumeConfigSchema,
+    volumeCreatedByApp: z.boolean().default(false),
+    deletedAt: z.string().datetime().nullable().optional(),
+    deletedBy: z.string().nullable().optional(),
     version: z.number().int().min(1).default(1),
     createdBy: z.string().nullable().optional(),
     updatedBy: z.string().nullable().optional(),

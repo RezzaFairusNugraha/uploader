@@ -21,6 +21,16 @@ export interface UnityCatalogVolumeInfo {
   comment?: string;
 }
 
+export interface VolumeContentsSummary {
+  csvFiles: number;
+  csvSize: number;
+  parquetFiles: number;
+  parquetSize: number;
+  totalFiles: number;
+  totalSize: number;
+  capped: boolean;
+}
+
 export interface DatabricksClient {
   getSchema: (catalog: string, schema: string) => Promise<DatabricksResponse<UnityCatalogSchemaInfo>>;
   getVolume: (catalog: string, schema: string, name: string) => Promise<DatabricksResponse<UnityCatalogVolumeInfo>>;
@@ -31,6 +41,12 @@ export interface DatabricksClient {
     name: string,
     comment?: string
   ) => Promise<DatabricksResponse<UnityCatalogVolumeInfo>>;
+  deleteVolume: (fullName: string) => Promise<DatabricksResponse>;
+  listVolumeContents: (
+    slugOrPath: string,
+    catalog?: string,
+    schema?: string
+  ) => Promise<DatabricksResponse<VolumeContentsSummary>>;
   createDirectory: (path: string) => Promise<DatabricksResponse>;
   checkDirectory: (directoryPath: string) => Promise<DatabricksResponse>;
   uploadFile: (filePath: string, body: BodyInit) => Promise<DatabricksResponse>;
@@ -265,6 +281,161 @@ export function createDatabricksClient(
           error: "Host tidak terjangkau atau koneksi terputus",
         };
       }
+    },
+
+    async deleteVolume(fullName: string): Promise<DatabricksResponse> {
+      const url = `${normalizedBase}/api/2.1/unity-catalog/volumes/${encodeURIComponent(fullName)}`;
+      try {
+        const response = await fetch(url, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (
+          response.ok ||
+          response.status === 200 ||
+          response.status === 204 ||
+          response.status === 404
+        ) {
+          return { success: true, status: response.status };
+        }
+
+        if (response.status === 403) {
+          return {
+            success: false,
+            status: 403,
+            error: "Token tidak memiliki hak untuk menghapus folder ini. Hubungi admin.",
+          };
+        }
+
+        if (response.status === 401) {
+          return {
+            success: false,
+            status: 401,
+            error: "Token tidak valid atau kedaluwarsa",
+          };
+        }
+
+        return {
+          success: false,
+          status: response.status,
+          error: "Gagal menghapus folder penyimpanan di Databricks",
+        };
+      } catch {
+        return {
+          success: false,
+          error: "Host tidak terjangkau atau koneksi terputus",
+        };
+      }
+    },
+
+    async listVolumeContents(
+      slugOrPath: string,
+      catalog?: string,
+      schema?: string
+    ): Promise<DatabricksResponse<VolumeContentsSummary>> {
+      let basePath = slugOrPath;
+      if (basePath.startsWith("/Volumes/")) {
+        basePath = basePath.replace(/\/+$/, "");
+      } else if (catalog && schema) {
+        basePath = `/Volumes/${catalog}/${schema}/${slugOrPath}`;
+      } else if (slugOrPath.includes(".")) {
+        const parts = slugOrPath.split(".");
+        basePath = `/Volumes/${parts[0]}/${parts[1]}/${parts[2]}`;
+      } else {
+        basePath = `/Volumes/${slugOrPath}`;
+      }
+
+      const walkFolder = async (
+        dirPath: string,
+        maxEntries: number
+      ): Promise<{ count: number; size: number; capped: boolean }> => {
+        let count = 0;
+        let size = 0;
+        let pageToken: string | undefined = undefined;
+        let capped = false;
+
+        while (true) {
+          const cleanPath = dirPath.startsWith("/") ? dirPath : `/${dirPath}`;
+          let url = `${normalizedBase}/api/2.0/fs/directories${encodeURI(cleanPath)}`;
+          if (pageToken) {
+            url += `?page_token=${encodeURIComponent(pageToken)}`;
+          }
+
+          try {
+            const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              signal: AbortSignal.timeout(15000),
+            });
+
+            if (response.status === 404) {
+              break;
+            }
+            if (!response.ok) {
+              break;
+            }
+
+            const data = (await response.json()) as {
+              contents?: Array<{
+                path?: string;
+                is_directory?: boolean;
+                file_size?: number;
+              }>;
+              next_page_token?: string;
+            };
+
+            const contents = data.contents || [];
+            for (const item of contents) {
+              if (!item.is_directory) {
+                count++;
+                size += item.file_size || 0;
+                if (count >= maxEntries) {
+                  capped = true;
+                  break;
+                }
+              }
+            }
+
+            if (capped || !data.next_page_token) {
+              break;
+            }
+            pageToken = data.next_page_token;
+          } catch {
+            break;
+          }
+        }
+
+        return { count, size, capped };
+      };
+
+      const MAX_TOTAL = 5000;
+      const csvRes = await walkFolder(`${basePath}/csv`, MAX_TOTAL);
+      const remaining = MAX_TOTAL - csvRes.count;
+      const parquetRes =
+        remaining > 0
+          ? await walkFolder(`${basePath}/parquet`, remaining)
+          : { count: 0, size: 0, capped: true };
+
+      const isCapped = csvRes.capped || parquetRes.capped;
+
+      return {
+        success: true,
+        data: {
+          csvFiles: csvRes.count,
+          csvSize: csvRes.size,
+          parquetFiles: parquetRes.count,
+          parquetSize: parquetRes.size,
+          totalFiles: csvRes.count + parquetRes.count,
+          totalSize: csvRes.size + parquetRes.size,
+          capped: isCapped,
+        },
+      };
     },
   };
 }
