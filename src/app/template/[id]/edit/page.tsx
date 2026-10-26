@@ -190,23 +190,45 @@ function EditTemplateForm({
   }, [id]);
 
   const addColumn = () => {
+    const newId = generateStableColumnId();
     const newDraft: ColumnDraft = {
-      id: generateStableColumnId(),
+      id: newId,
       name: `kolom_${columns.length + 1}`,
       required: true,
       type: "text",
       rule: { type: "text" },
-      isExpanded: true,
+      isExpanded: false,
     };
     setColumns([...columns, newDraft]);
+    setTimeout(() => {
+      const el = document.getElementById(newId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        const input = el.querySelector("input[type='text']") as HTMLInputElement | null;
+        input?.focus();
+      }
+    }, 50);
   };
 
   const removeColumn = (colId: string) => {
-    if (columns.length <= 1) {
-      notify.error("Template harus memiliki minimal 1 kolom");
-      return;
-    }
+    const targetIdx = columns.findIndex((c) => c.id === colId);
+    if (targetIdx === -1) return;
+    const targetCol = columns[targetIdx];
     setColumns(columns.filter((c) => c.id !== colId));
+
+    notify.info(`Kolom ${targetCol.name} dihapus`, {
+      action: {
+        label: "Batalkan",
+        onClick: () => {
+          setColumns((current) => {
+            const restored = [...current];
+            const insertIdx = Math.min(targetIdx, restored.length);
+            restored.splice(insertIdx, 0, targetCol);
+            return restored;
+          });
+        },
+      },
+    });
   };
 
   const updateColumn = (colId: string, patch: Partial<ColumnDraft>) => {
@@ -456,13 +478,11 @@ function EditTemplateForm({
         {/* Kolom */}
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-            <div>
-              <h2 className="text-base font-semibold text-zinc-900">
-                Aturan Pengisian Kolom
-              </h2>
-              <p className="text-sm text-zinc-500 mt-0.5">
-                Atur nama kolom dan kriteria pemeriksaan nilai.
-              </p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-zinc-900">Kolom</h2>
+              <span className="text-sm px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 font-medium">
+                {columns.length} kolom
+              </span>
             </div>
             <Button type="button" variant="secondary" onClick={addColumn}>
               <Plus className="w-4 h-4 mr-1 inline" />
@@ -470,41 +490,55 @@ function EditTemplateForm({
             </Button>
           </div>
 
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            accessibility={sortableAccessibility}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={columns.map((c) => c.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-3">
-                {columns.map((col, idx) => (
-                  <SortableColumnRow
-                    key={col.id}
-                    col={col}
-                    index={idx}
-                    total={columns.length}
-                    onUpdate={(patch) => updateColumn(col.id, patch)}
-                    onUpdateRule={(patch) => updateColumnRule(col.id, patch)}
-                    onMove={(dir) => moveColumn(idx, dir)}
-                    onRemove={() => removeColumn(col.id)}
-                  />
-                ))}
+          {columns.length === 0 ? (
+            <div className="py-12 text-center border-2 border-dashed border-zinc-200 rounded-xl space-y-3">
+              <p className="text-base text-zinc-500">Belum ada kolom.</p>
+              <div>
+                <Button type="button" variant="primary" onClick={addColumn}>
+                  <Plus className="w-4 h-4 mr-1.5 inline" />
+                  Tambah kolom
+                </Button>
               </div>
-            </SortableContext>
-            <DragOverlay>
-              {activeDragId ? (
-                (() => {
-                  const activeCol = columns.find((c) => c.id === activeDragId);
-                  return activeCol ? <DragOverlayColumnRow col={activeCol} /> : null;
-                })()
-              ) : null}
-            </DragOverlay>
-          </DndContext>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                accessibility={sortableAccessibility}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={columns.map((c) => c.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-3">
+                    {columns.map((col, idx) => (
+                      <div key={col.id} id={col.id}>
+                        <SortableColumnRow
+                          col={col}
+                          index={idx}
+                          total={columns.length}
+                          onUpdate={(patch) => updateColumn(col.id, patch)}
+                          onUpdateRule={(patch) => updateColumnRule(col.id, patch)}
+                          onRemove={() => removeColumn(col.id)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </SortableContext>
+                <DragOverlay>
+                  {activeDragId ? (
+                    (() => {
+                      const activeCol = columns.find((c) => c.id === activeDragId);
+                      return activeCol ? <DragOverlayColumnRow col={activeCol} /> : null;
+                    })()
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            </div>
+          )}
         </div>
 
         {/* Riwayat Versi Template Ini */}
