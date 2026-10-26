@@ -1,14 +1,8 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Geist } from "next/font/google";
 import { Toaster } from "sonner";
 import TopNav from "@/components/TopNav";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Data Uploader",
@@ -21,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" className={`${geistSans.variable} h-full antialiased`}>
+    <html lang="id" className="h-full antialiased">
       <body className="min-h-full flex flex-col bg-[#fafafa] text-zinc-900 font-sans">
         <Suspense fallback={<header className="border-b border-zinc-200 bg-white h-14" />}>
           <TopNav />

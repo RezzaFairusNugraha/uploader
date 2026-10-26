@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { templateRepository } from "@/lib/templates";
+import { templateVersionRepository } from "@/lib/templates/versions";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -16,7 +17,23 @@ export async function POST(
       );
     }
 
-    const archived = await templateRepository.archive(id);
+    let changedBy = "Pengguna";
+    try {
+      const body = await request.json();
+      if (body?.changedBy) changedBy = String(body.changedBy).trim();
+    } catch {}
+
+    const archived = await templateRepository.updateStatus(id, "diarsipkan");
+
+    await templateVersionRepository.add({
+      templateId: archived.id,
+      version: archived.version,
+      snapshot: archived,
+      changeSummary: "Template dinonaktifkan",
+      isBreaking: false,
+      changedBy,
+    });
+
     return NextResponse.json(archived);
   } catch (err: unknown) {
     const message =

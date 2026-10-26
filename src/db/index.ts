@@ -17,8 +17,8 @@ export function createDb() {
   return drizzle(sql, { schema });
 }
 
-export async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const timeoutMs = 8000;
+export async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 2, delayMs = 300): Promise<T> {
+  const timeoutMs = 10000;
   const executeWithTimeout = () =>
     Promise.race([
       fn(),
@@ -30,9 +30,16 @@ export async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
       ),
     ]);
 
-  try {
-    return await executeWithTimeout();
-  } catch {
-    return await executeWithTimeout();
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await executeWithTimeout();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+      }
+    }
   }
+  throw lastError;
 }

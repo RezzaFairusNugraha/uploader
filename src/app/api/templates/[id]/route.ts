@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   ColumnDefinitionSchema,
+  TemplateDefinition,
   TemplateDelimiterSchema,
   TemplateStatusSchema,
   VolumeConfigSchema,
@@ -63,14 +64,30 @@ export async function PUT(
     }
 
     const { changedBy, ...patchData } = parsed.data;
-    const updated = await templateRepository.update(id, patchData);
+
+    let updated: TemplateDefinition;
+    if (
+      patchData.status &&
+      Object.keys(patchData).length === 1
+    ) {
+      updated = await templateRepository.updateStatus(id, patchData.status);
+    } else {
+      updated = await templateRepository.update(id, patchData);
+    }
 
     const diff = diffTemplates(existing, updated);
+    const defaultSummary =
+      patchData.status === "aktif"
+        ? "Template diaktifkan kembali"
+        : patchData.status === "diarsipkan"
+        ? "Template dinonaktifkan"
+        : diff.summary || "Pembaruan template";
+
     await templateVersionRepository.add({
       templateId: updated.id,
       version: updated.version,
       snapshot: updated,
-      changeSummary: diff.summary || "Pembaruan template",
+      changeSummary: defaultSummary,
       isBreaking: diff.isBreaking,
       changedBy: changedBy?.trim() || "Pengguna",
     });

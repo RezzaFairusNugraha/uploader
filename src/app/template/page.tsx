@@ -73,6 +73,7 @@ export default function TemplatePage() {
   const [statusFilter, setStatusFilter] = useState<"aktif" | "diarsipkan" | "semua">("aktif");
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const menuTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const loadData = async () => {
@@ -175,7 +176,9 @@ export default function TemplatePage() {
   };
 
   const handleToggleArchive = async (tpl: TemplateWithMeta) => {
+    if (pendingActionId === tpl.id) return;
     setOpenMenuId(null);
+    setPendingActionId(tpl.id);
     const isCurrentlyArchived = tpl.status === "diarsipkan";
 
     if (isCurrentlyArchived) {
@@ -185,29 +188,43 @@ export default function TemplatePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "aktif" }),
         });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error || "Gagal mengaktifkan kembali template");
+        }
+        const updated = await res.json();
         setTemplates((prev) =>
-          prev.map((t) => (t.id === tpl.id ? { ...t, status: "aktif" } : t))
+          prev.map((t) => (t.id === tpl.id ? { ...t, ...updated, status: "aktif" } : t))
         );
         notify.success(`Template ${tpl.name} diaktifkan kembali`);
-      } catch {
-        notify.error("Gagal mengaktifkan kembali template");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Gagal mengaktifkan kembali template. Coba lagi.";
+        notify.error(msg);
+      } finally {
+        setPendingActionId(null);
       }
     } else {
       try {
         const res = await fetch(`/api/templates/${tpl.id}/archive`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ changedBy: "Pengguna" }),
         });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error || "Gagal menonaktifkan template");
+        }
+        const updated = await res.json();
 
         setTemplates((prev) =>
-          prev.map((t) => (t.id === tpl.id ? { ...t, status: "diarsipkan" } : t))
+          prev.map((t) => (t.id === tpl.id ? { ...t, ...updated, status: "diarsipkan" } : t))
         );
 
         notify.info(`Template ${tpl.name} dinonaktifkan`, {
           action: {
             label: "Batalkan",
             onClick: async () => {
+              setPendingActionId(tpl.id);
               try {
                 const undoRes = await fetch(`/api/templates/${tpl.id}`, {
                   method: "PUT",
@@ -215,17 +232,27 @@ export default function TemplatePage() {
                   body: JSON.stringify({ status: "aktif" }),
                 });
                 if (undoRes.ok) {
+                  const restored = await undoRes.json();
                   setTemplates((prev) =>
-                    prev.map((t) => (t.id === tpl.id ? { ...t, status: "aktif" } : t))
+                    prev.map((t) => (t.id === tpl.id ? { ...t, ...restored, status: "aktif" } : t))
                   );
                   notify.success(`Template ${tpl.name} kembali aktif`);
+                } else {
+                  throw new Error();
                 }
-              } catch {}
+              } catch {
+                notify.error(`Gagal membatalkan status template ${tpl.name}. Coba lagi.`);
+              } finally {
+                setPendingActionId(null);
+              }
             },
           },
         });
-      } catch {
-        notify.error("Gagal menonaktifkan template");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Gagal menonaktifkan template. Coba lagi.";
+        notify.error(msg);
+      } finally {
+        setPendingActionId(null);
       }
     }
   };
@@ -409,6 +436,7 @@ export default function TemplatePage() {
             <TemplateCard
               key={tpl.id}
               tpl={tpl}
+              isPending={pendingActionId === tpl.id}
               isMenuOpen={openMenuId === tpl.id}
               onToggleMenu={() =>
                 setOpenMenuId((cur) => (cur === tpl.id ? null : tpl.id))
@@ -430,6 +458,7 @@ export default function TemplatePage() {
 
 interface TemplateCardProps {
   tpl: TemplateWithMeta;
+  isPending?: boolean;
   isMenuOpen: boolean;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
@@ -441,6 +470,7 @@ interface TemplateCardProps {
 
 function TemplateCard({
   tpl,
+  isPending = false,
   isMenuOpen,
   onToggleMenu,
   onCloseMenu,
@@ -520,6 +550,7 @@ function TemplateCard({
           <Link href={`/?template=${tpl.id}`} className="w-full sm:w-auto">
             <Button
               variant="primary"
+              disabled={isPending}
               className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2"
             >
               <Upload className="w-4 h-4 shrink-0" />
@@ -535,6 +566,7 @@ function TemplateCard({
         <Button
           type="button"
           variant="secondary"
+          disabled={isPending}
           onClick={onDownload}
           className="min-h-[44px] whitespace-nowrap gap-2"
         >
@@ -546,6 +578,7 @@ function TemplateCard({
           <Button
             type="button"
             variant="secondary"
+            disabled={isPending}
             className="min-h-[44px] whitespace-nowrap gap-2"
           >
             <Pencil className="w-4 h-4 shrink-0" />
@@ -563,14 +596,19 @@ function TemplateCard({
             aria-haspopup="menu"
             aria-expanded={isMenuOpen}
             aria-controls={menuId}
+            disabled={isPending}
             onClick={onToggleMenu}
-            className="min-h-[44px] px-3.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 inline-flex items-center gap-1.5 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-600"
+            className="min-h-[44px] px-3.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 inline-flex items-center gap-1.5 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <MoreHorizontal className="w-4 h-4" />
+            {isPending ? (
+              <span className="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin shrink-0" />
+            ) : (
+              <MoreHorizontal className="w-4 h-4" />
+            )}
             <span>Lainnya</span>
           </button>
 
-          {isMenuOpen && (
+          {isMenuOpen && !isPending && (
             <div
               id={menuId}
               role="menu"

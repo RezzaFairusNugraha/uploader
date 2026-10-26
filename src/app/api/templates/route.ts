@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, connection } from "next/server";
 import { z } from "zod";
 import {
   ColumnDefinitionSchema,
@@ -20,6 +20,7 @@ const CreateTemplateBodySchema = z.object({
 });
 
 export async function GET() {
+  await connection();
   const templates = await templateRepository.list();
   return NextResponse.json({ templates });
 }

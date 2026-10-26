@@ -18,6 +18,10 @@ export interface TemplateRepository {
     id: string,
     patch: Partial<Omit<TemplateDefinition, "id" | "createdAt">>
   ): Promise<TemplateDefinition>;
+  updateStatus(
+    id: string,
+    status: TemplateStatus
+  ): Promise<TemplateDefinition>;
   archive(id: string): Promise<TemplateDefinition>;
 }
 
@@ -167,8 +171,40 @@ export class DrizzleTemplateRepository implements TemplateRepository {
     return mapRowToTemplate(rows[0]);
   }
 
+  async updateStatus(
+    id: string,
+    status: TemplateStatus
+  ): Promise<TemplateDefinition> {
+    const current = await this.get(id);
+    if (!current) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    const newVersion = current.version + 1;
+    const now = new Date();
+
+    const db = createDb();
+    const rows = await withDbRetry(() =>
+      db
+        .update(templates)
+        .set({
+          status,
+          version: newVersion,
+          updatedAt: now,
+        })
+        .where(eq(templates.id, id))
+        .returning()
+    );
+
+    if (rows.length === 0) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    return mapRowToTemplate(rows[0]);
+  }
+
   async archive(id: string): Promise<TemplateDefinition> {
-    return this.update(id, { status: "diarsipkan" });
+    return this.updateStatus(id, "diarsipkan");
   }
 }
 
@@ -249,8 +285,29 @@ export class FakeInMemoryTemplateRepository implements TemplateRepository {
     return validated;
   }
 
+  async updateStatus(
+    id: string,
+    status: TemplateStatus
+  ): Promise<TemplateDefinition> {
+    const current = this.items.get(id);
+    if (!current) {
+      throw new Error(`Template dengan id '${id}' tidak ditemukan`);
+    }
+
+    const updated: TemplateDefinition = {
+      ...current,
+      status,
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const validated = TemplateDefinitionSchema.parse(updated);
+    this.items.set(id, validated);
+    return validated;
+  }
+
   async archive(id: string): Promise<TemplateDefinition> {
-    return this.update(id, { status: "diarsipkan" });
+    return this.updateStatus(id, "diarsipkan");
   }
 }
 
@@ -279,6 +336,9 @@ export const templateRepository: TemplateRepository = {
   },
   update(id: string, patch: Partial<Omit<TemplateDefinition, "id" | "createdAt">>) {
     return getTemplateRepository().update(id, patch);
+  },
+  updateStatus(id: string, status: TemplateStatus) {
+    return getTemplateRepository().updateStatus(id, status);
   },
   archive(id: string) {
     return getTemplateRepository().archive(id);
