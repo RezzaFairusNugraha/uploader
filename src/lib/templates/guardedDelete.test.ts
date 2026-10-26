@@ -211,24 +211,14 @@ describe("Guarded Permanent Delete Flow", () => {
     );
   });
 
-  it("app-created volume calls deleteVolume once and then marks the template deleted", async () => {
+  it("app-created volume does not delete volume in Databricks and marks the template deleted", async () => {
     let deleteVolumeCallCount = 0;
-    let deletedVolumeFullName = "";
 
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       const urlStr = url.toString();
       if (init?.method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
         deleteVolumeCallCount++;
-        deletedVolumeFullName = urlStr;
         return new Response(null, { status: 200 });
-      }
-      if (urlStr.includes("/api/2.0/fs/directories")) {
-        return new Response(
-          JSON.stringify({
-            contents: [{ path: "file1.csv", is_directory: false, file_size: 1024 }],
-          }),
-          { status: 200 }
-        );
       }
       return new Response(JSON.stringify({}), { status: 200 });
     }) as typeof fetch;
@@ -254,8 +244,7 @@ describe("Guarded Permanent Delete Flow", () => {
       params: Promise.resolve({ id: sampleArchivedTemplate.id }),
     });
     expect(res.status).toBe(200);
-    expect(deleteVolumeCallCount).toBe(1);
-    expect(deletedVolumeFullName).toContain("main.sales.laporan_penjualan");
+    expect(deleteVolumeCallCount).toBe(0);
 
     const updated = await templateRepo.get(sampleArchivedTemplate.id);
     expect(updated?.status).toBe("dihapus");
@@ -264,114 +253,8 @@ describe("Guarded Permanent Delete Flow", () => {
     const versions = await versionRepo.listByTemplate(sampleArchivedTemplate.id);
     expect(versions.length).toBe(1);
     expect(versions[0].changeSummary).toContain(
-      "Template dihapus permanen beserta folder penyimpanan"
+      "Folder penyimpanan di Databricks tetap dipertahankan"
     );
-  });
-
-  it("404 on deleteVolume is treated as success", async () => {
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
-      if (init?.method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        return new Response(
-          JSON.stringify({ error_code: "NOT_FOUND", message: "Volume not found" }),
-          { status: 404 }
-        );
-      }
-      return new Response(JSON.stringify({ contents: [] }), { status: 200 });
-    }) as typeof fetch;
-
-    await templateRepo.create(sampleArchivedTemplate);
-
-    const req = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin",
-        }),
-      }
-    );
-
-    const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
-    });
-    expect(res.status).toBe(200);
-
-    const updated = await templateRepo.get(sampleArchivedTemplate.id);
-    expect(updated?.status).toBe("dihapus");
-  });
-
-  it("a 403 or a network error leaves the template unchanged", async () => {
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
-      if (init?.method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        return new Response(
-          JSON.stringify({ error_code: "PERMISSION_DENIED" }),
-          { status: 403 }
-        );
-      }
-      return new Response(JSON.stringify({ contents: [] }), { status: 200 });
-    }) as typeof fetch;
-
-    await templateRepo.create(sampleArchivedTemplate);
-
-    const req403 = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin",
-        }),
-      }
-    );
-
-    const res403 = await deleteRoute(req403, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
-    });
-    expect(res403.status).toBe(403);
-
-    let current = await templateRepo.get(sampleArchivedTemplate.id);
-    expect(current?.status).toBe("diarsipkan");
-
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
-      if (init?.method === "DELETE") {
-        throw new Error("Network connection dropped");
-      }
-      return new Response(JSON.stringify({ contents: [] }), { status: 200 });
-    }) as typeof fetch;
-
-    const reqNetwork = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin",
-        }),
-      }
-    );
-
-    const resNetwork = await deleteRoute(reqNetwork, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
-    });
-    expect(resNetwork.status).toBe(500);
-
-    current = await templateRepo.get(sampleArchivedTemplate.id);
-    expect(current?.status).toBe("diarsipkan");
   });
 
   it("slug can be reused after deletion", async () => {

@@ -12,9 +12,17 @@ export interface ProvisionTemplateResult {
   volumeExists?: boolean;
 }
 
+export interface ProvisionTemplateOptions {
+  reuseExistingVolume?: boolean;
+  catalog?: string;
+  schema?: string;
+  volumeName?: string;
+  changedBy?: string;
+}
+
 export async function provisionTemplate(
   templateId: string,
-  options?: { reuseExistingVolume?: boolean }
+  options?: ProvisionTemplateOptions
 ): Promise<ProvisionTemplateResult> {
   let template = await templateRepository.get(templateId);
   if (!template) {
@@ -64,9 +72,9 @@ export async function provisionTemplate(
     },
   ];
 
-  const catalog = template.volume.catalog;
-  const schema = template.volume.schema;
-  const volumeName = template.volume.name;
+  const catalog = options?.catalog || settings.catalog || template.volume?.catalog || "main";
+  const schema = options?.schema || settings.schema || template.volume?.schema || "default";
+  const volumeName = options?.volumeName || template.volume?.name || template.slug;
   let volumeCreatedByApp = false;
 
   try {
@@ -74,7 +82,7 @@ export async function provisionTemplate(
     const volumeCheck = await client.getVolume(catalog, schema, volumeName);
 
     if (volumeCheck.success) {
-      if (!options?.reuseExistingVolume) {
+      if (options?.reuseExistingVolume === false) {
         steps[1].status = "error";
         steps[1].message = `Volume '${volumeName}' sudah ada di Unity Catalog.`;
         await templateRepository.update(templateId, { status: "gagal" });
@@ -163,9 +171,16 @@ export async function provisionTemplate(
 
     template = await templateRepository.update(templateId, {
       status: "aktif",
+      volume: {
+        catalog,
+        schema,
+        name: volumeName,
+      },
       volumeCreatedByApp,
       workspaceHost,
       needsCheck: false,
+      visibility: "terlihat",
+      visibilityCheckedAt: new Date().toISOString(),
     });
     steps[4].status = "success";
 

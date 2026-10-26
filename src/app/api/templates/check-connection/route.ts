@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { verifyAdminToken } from "@/lib/adminAuth";
 import { createDatabricksClient } from "@/lib/databricks";
 import { readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
@@ -12,29 +10,8 @@ export interface CheckConnectionItemResult {
   status: "ditemukan" | "tidak ditemukan" | "tidak ada izin";
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    let session: string | undefined;
-    try {
-      const cookieStore = await cookies();
-      session = cookieStore.get("admin_session")?.value;
-    } catch {}
-
-    if (!session) {
-      const cookieHeader = request.headers.get("cookie") || "";
-      const match = cookieHeader.match(/admin_session=([^;]+)/);
-      if (match) {
-        session = match[1];
-      }
-    }
-
-    if (!session || !verifyAdminToken(session)) {
-      return NextResponse.json(
-        { error: "Sesi admin diperlukan untuk memeriksa koneksi template." },
-        { status: 401 }
-      );
-    }
-
     const settings = await readDecryptedSettings();
     if (!settings || !settings.workspaceUrl || !settings.token) {
       return NextResponse.json(
@@ -50,16 +27,20 @@ export async function POST(request: Request) {
 
     const client = createDatabricksClient(settings.workspaceUrl, settings.token);
     const allTemplates = await templateRepository.list();
-    const flaggedTemplates = allTemplates.filter((t) => t.needsCheck);
+    const flaggedTemplates = allTemplates.filter(
+      (t) => t.needsCheck || t.visibility === "tidak_terlihat"
+    );
 
+    const currentCatalog = settings.catalog || "main";
+    const currentSchema = settings.schema || "default";
     const results: CheckConnectionItemResult[] = [];
 
     for (const t of flaggedTemplates) {
-      const volRes = await client.getVolume(
-        t.volume.catalog,
-        t.volume.schema,
-        t.volume.name
-      );
+      const cat = t.volume?.catalog || currentCatalog;
+      const sch = t.volume?.schema || currentSchema;
+      const volName = t.volume?.name || t.slug;
+
+      const volRes = await client.getVolume(cat, sch, volName);
 
       if (volRes.success) {
         await templateRepository.update(t.id, {
@@ -71,21 +52,21 @@ export async function POST(request: Request) {
         results.push({
           templateId: t.id,
           templateName: t.name,
-          volumeName: t.volume.name,
+          volumeName: volName,
           status: "ditemukan",
         });
       } else if (volRes.status === 403) {
         results.push({
           templateId: t.id,
           templateName: t.name,
-          volumeName: t.volume.name,
+          volumeName: volName,
           status: "tidak ada izin",
         });
       } else {
         results.push({
           templateId: t.id,
           templateName: t.name,
-          volumeName: t.volume.name,
+          volumeName: volName,
           status: "tidak ditemukan",
         });
       }
@@ -98,7 +79,8 @@ export async function POST(request: Request) {
       results,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan saat memeriksa template";
+    const message =
+      err instanceof Error ? err.message : "Gagal memeriksa koneksi template";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

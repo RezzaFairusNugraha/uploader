@@ -54,49 +54,33 @@ export async function GET(
     (l) => new Date(l.createdAt).getTime() >= sevenDaysAgo
   ).length;
 
-  if (template.status === "draf" && (!template.volume?.name || !template.volumeCreatedByApp)) {
-    return NextResponse.json({
-      csvFiles: 0,
-      parquetFiles: 0,
-      totalSize: 0,
-      capped: false,
-      lastUploadAt,
-      uploadsLast7Days,
-      volumeOwnedByApp: template.volumeCreatedByApp ?? false,
-    });
-  }
-
-  const conn = await getConnectionState();
-  if (!conn.ready) {
-    return NextResponse.json(
-      { error: "Koneksi ke penyimpanan data belum siap. Hubungi admin." },
-      { status: 503 }
-    );
-  }
-
-  const settings = await readDecryptedSettings();
-  if (!settings || !settings.workspaceUrl || !settings.token) {
-    return NextResponse.json(
-      { error: "Pengaturan koneksi ke penyimpanan data tidak lengkap." },
-      { status: 503 }
-    );
-  }
-
-  const client = createDatabricksClient(settings.workspaceUrl, settings.token);
-  const volRes = await client.listVolumeContents(
-    template.volume.name,
-    template.volume.catalog,
-    template.volume.schema,
-    template.csvFolder,
-    template.parquetFolder
-  );
-
-  const summary = volRes.data || {
+  let summary = {
     csvFiles: 0,
     parquetFiles: 0,
     totalSize: 0,
     capped: false,
   };
+
+  try {
+    const conn = await getConnectionState();
+    if (conn.ready && template.volume?.name) {
+      const settings = await readDecryptedSettings();
+      if (settings?.workspaceUrl && settings?.token) {
+        const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+        const volRes = await client.listVolumeContents(
+          template.volume.name,
+          template.volume.catalog,
+          template.volume.schema,
+          template.csvFolder,
+          template.parquetFolder
+        );
+        if (volRes.data) {
+          summary = volRes.data;
+        }
+      }
+    }
+  } catch {
+  }
 
   return NextResponse.json({
     csvFiles: summary.csvFiles,

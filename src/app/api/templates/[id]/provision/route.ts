@@ -9,7 +9,11 @@ export async function POST(
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
     const result = await provisionTemplate(id, {
-      reuseExistingVolume: Boolean(body?.reuseExistingVolume),
+      reuseExistingVolume: body?.reuseExistingVolume !== undefined ? Boolean(body.reuseExistingVolume) : true,
+      catalog: body?.catalog,
+      schema: body?.schema,
+      volumeName: body?.volumeName,
+      changedBy: body?.changedBy,
     });
 
     return NextResponse.json(result, {

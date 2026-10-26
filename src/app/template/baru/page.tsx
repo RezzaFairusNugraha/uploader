@@ -39,7 +39,7 @@ import {
   type SortableColumnItemData,
 } from "@/components/SortableColumnRow";
 import { notify } from "@/lib/notify";
-import type { ConnectionState, MaskedSettings } from "@/lib/settings";
+import type { MaskedSettings } from "@/lib/settings";
 import { inferFromCsv, inferFromParquet } from "@/lib/templates/infer";
 import {
   columnNameRegex,
@@ -840,25 +840,25 @@ export default function NewTemplatePage() {
           </div>
 
           <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-3">
-              <div className="flex items-center gap-3">
-                <h2 className="text-base font-semibold text-zinc-900">
-                  Folder Penyimpanan di Databricks
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-100 pb-4">
+              <div className="flex items-center gap-2.5 shrink-0">
+                <h2 className="text-base font-semibold text-zinc-900 whitespace-nowrap">
+                  Folder Penyimpanan
                 </h2>
-                <span className="text-sm px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600 font-medium">
+                <span className="text-xs px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600 font-medium whitespace-nowrap">
                   {discoveredVolumes.length} folder
                 </span>
               </div>
               {candidateVolumes.length > 0 && (
-                <div className="flex items-center gap-3">
-                  <label className="inline-flex items-center gap-2 text-sm text-zinc-700 cursor-pointer min-h-[44px]">
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-3">
+                  <label className="inline-flex items-center gap-2 text-sm text-zinc-700 cursor-pointer min-h-[44px] px-2 py-1 rounded-lg hover:bg-zinc-50 select-none whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={isAllCandidatesSelected}
                       onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-600"
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-600 cursor-pointer shrink-0"
                     />
-                    <span>Pilih semua</span>
+                    <span className="whitespace-nowrap font-medium">Pilih semua</span>
                   </label>
                   <Button
                     type="button"
@@ -866,6 +866,7 @@ export default function NewTemplatePage() {
                     disabled={selectedSyncVolumes.size === 0 || isBulkImporting}
                     isLoading={isBulkImporting}
                     onClick={handleBulkImport}
+                    className="whitespace-nowrap min-h-[44px]"
                   >
                     Buat draf dari yang dipilih ({selectedSyncVolumes.size})
                   </Button>

@@ -185,4 +185,69 @@ describe("Part C: Connection Protection Tests", () => {
     expect(reloaded?.visibility).toBe("terlihat");
     expect(reloaded?.visibilityCheckedAt).toBe("2026-10-25T10:00:00.000Z");
   });
+
+  it("provisions volume on new connection and clears needsCheck so template becomes active and uploadable", async () => {
+    const tpl = sampleTemplate({
+      needsCheck: true,
+      workspaceHost: "dbc-old.cloud.databricks.com",
+      volume: {
+        catalog: "old_catalog",
+        schema: "old_schema",
+        name: "template_a",
+      },
+    });
+    const created = await fakeRepo.create(tpl);
+
+    await fakeSettingsStore.save({
+      workspaceUrl: "https://dbc-new.cloud.databricks.com",
+      token: "new-token",
+      catalog: "analytics_cat",
+      schema: "sales_sch",
+      maxFileSizeMb: 100,
+    });
+
+    let volumeCreated = false;
+    const createdDirs: string[] = [];
+    const origFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const urlStr = url.toString();
+      const method = init?.method || "GET";
+      if (urlStr.includes("/volumes/analytics_cat.sales_sch.template_a") && method === "GET") {
+        return new Response("Not found", { status: 404 });
+      }
+      if (urlStr.endsWith("/volumes") && method === "POST") {
+        volumeCreated = true;
+        return new Response(JSON.stringify({ name: "template_a" }), { status: 201 });
+      }
+      if (urlStr.includes("/api/2.0/fs/directories") && method === "PUT") {
+        createdDirs.push(urlStr);
+        return new Response("{}", { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const { provisionTemplate } = await import("./provision");
+      const result = await provisionTemplate(created.id, { reuseExistingVolume: true });
+
+      expect(result.success).toBe(true);
+      expect(volumeCreated).toBe(true);
+      expect(result.template.status).toBe("aktif");
+      expect(result.template.needsCheck).toBe(false);
+      expect(result.template.workspaceHost).toBe("dbc-new.cloud.databricks.com");
+      expect(result.template.volume.catalog).toBe("analytics_cat");
+      expect(result.template.volume.schema).toBe("sales_sch");
+      expect(result.template.volume.name).toBe("template_a");
+
+      const reloaded = await fakeRepo.get(created.id);
+      expect(reloaded?.status).toBe("aktif");
+      expect(reloaded?.needsCheck).toBe(false);
+      expect(reloaded?.workspaceHost).toBe("dbc-new.cloud.databricks.com");
+      expect(reloaded?.volume.catalog).toBe("analytics_cat");
+      expect(reloaded?.volume.schema).toBe("sales_sch");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });

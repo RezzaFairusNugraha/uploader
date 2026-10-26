@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo, useId } from "react";
+import { useEffect, useRef, useState, useMemo, useId, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Archive,
+  Copy,
   Download,
+  FolderCheck,
+  FolderPlus,
   History,
   Lock,
   MoreHorizontal,
@@ -13,11 +17,11 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import Button from "@/components/Button";
-import PageHeader from "@/components/PageHeader";
 import { notify } from "@/lib/notify";
 import {
   formatTemplateCardMeta,
@@ -79,20 +83,13 @@ const statusBadgeConfig: Record<
   },
 };
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const val = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1);
-  return `${val} ${units[i]}`;
-}
-
 export default function TemplatePage() {
   const router = useRouter();
   const [templates, setTemplates] = useState<TemplateWithMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  const [isPreparingAll, setIsPreparingAll] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -403,12 +400,7 @@ export default function TemplatePage() {
 
     setIsDeleting(true);
     setDeleteError(null);
-
-    if (deletePreview?.volumeOwnedByApp) {
-      setDeleteStep("Menghapus folder penyimpanan di Databricks");
-    } else {
-      setDeleteStep("Menghapus template");
-    }
+    setDeleteStep("Menghapus template");
 
     try {
       const res = await fetch(`/api/templates/${deleteTarget.id}/delete`, {
@@ -494,39 +486,114 @@ export default function TemplatePage() {
     }
   };
 
+  const handlePrepareVolume = async (tpl: TemplateWithMeta) => {
+    if (pendingActionId === tpl.id) return;
+    setPendingActionId(tpl.id);
+    try {
+      const res = await fetch(`/api/templates/${tpl.id}/provision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reuseExistingVolume: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Gagal menyiapkan folder di Databricks");
+      }
+      const updated = data.template;
+      setTemplates((prev) =>
+        prev.map((t) =>
+          t.id === tpl.id
+            ? {
+                ...t,
+                ...updated,
+                status: "aktif",
+                needsCheck: false,
+                visibility: "terlihat",
+              }
+            : t
+        )
+      );
+      notify.success(
+        `Folder penyimpanan berhasil disiapkan untuk template ${tpl.name}`
+      );
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Gagal menyiapkan folder di Databricks";
+      notify.error(msg);
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
+  const handlePrepareAllVolumes = async () => {
+    const toPrepare = templates.filter(
+      (t) => t.needsCheck || t.visibility === "tidak_terlihat"
+    );
+    if (toPrepare.length === 0) return;
+    setIsPreparingAll(true);
+    let successCount = 0;
+    try {
+      for (const tpl of toPrepare) {
+        const res = await fetch(`/api/templates/${tpl.id}/provision`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reuseExistingVolume: true }),
+        });
+        if (res.ok) {
+          successCount++;
+        }
+      }
+      await loadData();
+      notify.success(
+        `Berhasil menyiapkan ${successCount} folder penyimpanan di Databricks`
+      );
+    } catch {
+      notify.error("Terjadi kendala saat menyiapkan sebagian folder");
+    } finally {
+      setIsPreparingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6 text-base max-w-4xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <PageHeader
-          title="Template"
-          description="Template adalah contoh format file yang perlu Anda isi sebelum mengunggah."
-        />
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
-          <Link href="/template/baru?mode=sync" className="w-full sm:w-auto">
+      <div className="pb-4 border-b border-zinc-200/80 space-y-4">
+        <div>
+          <h1 className="text-[28px] font-semibold tracking-tight text-zinc-900 leading-tight">
+            Template
+          </h1>
+          <p className="text-base text-zinc-500 mt-1">
+            Template adalah contoh format file yang perlu Anda isi sebelum mengunggah.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link href="/template/baru">
+            <Button
+              variant="primary"
+              className="whitespace-nowrap gap-2 min-h-[44px]"
+            >
+              <Plus className="w-4 h-4 shrink-0" />
+              <span>Buat template</span>
+            </Button>
+          </Link>
+          <Link href="/template/baru?mode=sync">
             <Button
               variant="secondary"
-              className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]"
+              className="whitespace-nowrap gap-2 min-h-[44px]"
             >
               <RefreshCw className="w-4 h-4 shrink-0" />
               <span>Sinkronkan dengan Databricks</span>
             </Button>
           </Link>
-          <Link href="/template/perubahan" className="w-full sm:w-auto">
+          <Link href="/template/perubahan">
             <Button
               variant="secondary"
-              className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]"
+              className="whitespace-nowrap gap-2 min-h-[44px]"
             >
               <History className="w-4 h-4 shrink-0" />
               <span>Riwayat perubahan</span>
-            </Button>
-          </Link>
-          <Link href="/template/baru" className="w-full sm:w-auto">
-            <Button
-              variant="primary"
-              className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span>Buat template</span>
             </Button>
           </Link>
         </div>
@@ -540,15 +607,26 @@ export default function TemplatePage() {
               Koneksi diganti. {flaggedCount} template perlu diperiksa.
             </span>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={isCheckingConnection}
-            onClick={handleCheckAllTemplates}
-            className="whitespace-nowrap"
-          >
-            {isCheckingConnection ? "Memeriksa..." : "Periksa semua template"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isCheckingConnection || isPreparingAll}
+              onClick={handleCheckAllTemplates}
+              className="whitespace-nowrap"
+            >
+              {isCheckingConnection ? "Memeriksa..." : "Periksa koneksi"}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={isCheckingConnection || isPreparingAll}
+              onClick={handlePrepareAllVolumes}
+              className="whitespace-nowrap"
+            >
+              {isPreparingAll ? "Menyiapkan..." : "Siapkan semua folder"}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -685,6 +763,7 @@ export default function TemplatePage() {
               onToggleArchive={() => handleToggleArchive(tpl)}
               onDeletePermanent={() => openDeleteDialog(tpl)}
               onOpenAdminLogin={() => openAdminLogin(tpl)}
+              onPrepareVolume={() => handlePrepareVolume(tpl)}
               triggerRef={(el) => {
                 menuTriggerRefs.current[tpl.id] = el;
               }}
@@ -730,53 +809,33 @@ export default function TemplatePage() {
             {previewLoading ? (
               <div className="py-6 text-center text-sm text-zinc-500">
                 <span className="inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mr-2 align-middle" />
-                Memeriksa isi folder dan berkas terkait...
+                Memeriksa status template...
               </div>
-            ) : deletePreview && deletePreview.volumeOwnedByApp ? (
+            ) : (
               <div className="space-y-3">
                 <div className="text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-2">
-                  <div className="font-semibold text-zinc-900">Yang akan terhapus:</div>
+                  <div className="font-semibold text-zinc-900">Yang perlu Anda ketahui:</div>
                   <ul className="list-disc list-inside space-y-1 text-zinc-600">
-                    <li>Template ini</li>
-                    <li>Folder penyimpanan di Databricks</li>
+                    <li>Template ini akan dihapus dari aplikasi.</li>
                     <li>
-                      Setiap berkas di dalamnya (
-                      {deletePreview.capped ? "lebih dari " : ""}
-                      {(deletePreview.csvFiles || 0) + (deletePreview.parquetFiles || 0)} file,{" "}
-                      {formatBytes(deletePreview.totalSize || 0)}: {deletePreview.csvFiles || 0} di
-                      folder CSV, {deletePreview.parquetFiles || 0} di folder Parquet)
+                      <span className="font-medium text-zinc-800">
+                        Folder penyimpanan di Databricks tidak akan dihapus
+                      </span>{" "}
+                      dan semua berkas di dalamnya tetap aman tersimpan.
                     </li>
                   </ul>
-                  <div className="text-xs text-zinc-500 pt-1">
-                    {formatTemplateLastUpload(deletePreview.lastUploadAt)}
-                  </div>
+                  {deletePreview?.lastUploadAt && (
+                    <div className="text-xs text-zinc-500 pt-1">
+                      {formatTemplateLastUpload(deletePreview.lastUploadAt)}
+                    </div>
+                  )}
                 </div>
 
-                {deletePreview.uploadsLast7Days > 0 && (
-                  <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <span>
-                      Template ini dipakai {deletePreview.uploadsLast7Days} kali dalam 7 hari terakhir.
-                    </span>
-                  </div>
-                )}
-
-                <p className="text-sm text-rose-600 font-medium">
-                  Tindakan ini tidak bisa dibatalkan. Pastikan tim data sudah tahu, karena proses di
-                  sistem data yang membaca folder ini akan gagal.
+                <p className="text-sm text-zinc-600">
+                  Ketik nama template di bawah untuk mengonfirmasi penghapusan template.
                 </p>
               </div>
-            ) : deletePreview && !deletePreview.volumeOwnedByApp ? (
-              <div className="space-y-3">
-                <div className="text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-xl p-4">
-                  Folder penyimpanan ini tidak dibuat oleh aplikasi, jadi tidak ikut dihapus. Hanya
-                  template yang dihapus.
-                </div>
-                <p className="text-sm text-rose-600 font-medium">
-                  Tindakan ini tidak bisa dibatalkan.
-                </p>
-              </div>
-            ) : null}
+            )}
 
             {previewError && (
               <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3.5">
@@ -961,6 +1020,7 @@ interface TemplateCardProps {
   onToggleArchive: () => void;
   onDeletePermanent: () => void;
   onOpenAdminLogin: () => void;
+  onPrepareVolume: () => void;
   triggerRef: (el: HTMLButtonElement | null) => void;
 }
 
@@ -976,6 +1036,7 @@ function TemplateCard({
   onToggleArchive,
   onDeletePermanent,
   onOpenAdminLogin,
+  onPrepareVolume,
   triggerRef,
 }: TemplateCardProps) {
   let badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
@@ -1001,6 +1062,38 @@ function TemplateCard({
 
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [openUpward, setOpenUpward] = useState(false);
+  const [maxMenuHeight, setMaxMenuHeight] = useState<number | null>(null);
+
+  const calculatePlacement = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const upward = spaceBelow < 320 && spaceAbove > spaceBelow;
+    setOpenUpward(upward);
+    const available = upward ? spaceAbove - 16 : spaceBelow - 16;
+    setMaxMenuHeight(Math.max(140, Math.floor(available)));
+  }, []);
+
+  const handleToggleMenu = () => {
+    if (!isMenuOpen) {
+      calculatePlacement();
+    }
+    onToggleMenu();
+  };
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    calculatePlacement();
+    const handleRecalculate = () => calculatePlacement();
+    window.addEventListener("scroll", handleRecalculate, true);
+    window.addEventListener("resize", handleRecalculate);
+    return () => {
+      window.removeEventListener("scroll", handleRecalculate, true);
+      window.removeEventListener("resize", handleRecalculate);
+    };
+  }, [isMenuOpen, calculatePlacement]);
 
   useEffect(() => {
     if (!isMenuOpen) return;
@@ -1071,10 +1164,21 @@ function TemplateCard({
               Periksa dan aktifkan
             </Button>
           </Link>
-        ) : tpl.needsCheck ? (
-          <span className="text-sm text-zinc-400 py-2 sm:py-0 w-full sm:w-auto inline-flex items-center">
-            Koneksi diganti. Template ini perlu diperiksa dulu.
-          </span>
+        ) : tpl.needsCheck || tpl.visibility === "tidak_terlihat" ? (
+          <Button
+            type="button"
+            variant="primary"
+            disabled={isPending}
+            onClick={onPrepareVolume}
+            className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2"
+          >
+            {isPending ? (
+              <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin shrink-0" />
+            ) : (
+              <FolderPlus className="w-4 h-4 shrink-0" />
+            )}
+            <span>Siapkan folder di Databricks</span>
+          </Button>
         ) : isReady ? (
           <Link href={`/?template=${tpl.id}`} className="w-full sm:w-auto">
             <Button
@@ -1126,13 +1230,17 @@ function TemplateCard({
             aria-expanded={isMenuOpen}
             aria-controls={menuId}
             disabled={isPending}
-            onClick={onToggleMenu}
-            className="min-h-[44px] px-3.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 inline-flex items-center gap-1.5 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleToggleMenu}
+            className={`min-h-[44px] px-3.5 rounded-xl border bg-white inline-flex items-center gap-2 text-base font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed ${
+              isMenuOpen
+                ? "border-indigo-600 text-indigo-700 bg-indigo-50/50"
+                : "border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900"
+            }`}
           >
             {isPending ? (
               <span className="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin shrink-0" />
             ) : (
-              <MoreHorizontal className="w-4 h-4" />
+              <MoreHorizontal className="w-4 h-4 text-zinc-500" />
             )}
             <span>Lainnya</span>
           </button>
@@ -1141,73 +1249,69 @@ function TemplateCard({
             <div
               id={menuId}
               role="menu"
-              className="absolute right-0 mt-2 w-56 bg-white border border-zinc-200 rounded-xl shadow-lg py-1.5 z-20 animate-in fade-in zoom-in-95"
+              style={maxMenuHeight ? { maxHeight: `${maxMenuHeight}px` } : undefined}
+              className={`absolute right-0 w-64 max-w-[calc(100vw-32px)] bg-white border border-zinc-200 rounded-xl shadow-lg p-1.5 z-30 overflow-y-auto ${
+                openUpward
+                  ? "bottom-full mb-2 origin-bottom-right"
+                  : "top-full mt-2 origin-top-right"
+              }`}
             >
               <button
                 type="button"
                 role="menuitem"
                 onClick={onDuplicate}
-                className="w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+                className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
               >
-                Buat dari template ini
+                <Copy className="w-4 h-4 text-zinc-400 shrink-0" />
+                <span>Buat dari template ini</span>
               </button>
               <Link
                 href="/template/perubahan"
                 role="menuitem"
                 onClick={onCloseMenu}
-                className="block w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+                className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
               >
-                Riwayat perubahan
+                <History className="w-4 h-4 text-zinc-400 shrink-0" />
+                <span>Riwayat perubahan</span>
               </Link>
               <button
                 type="button"
                 role="menuitem"
                 onClick={onToggleArchive}
-                className="w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
               >
-                {isArchived ? "Aktifkan kembali" : "Nonaktifkan"}
+                <Archive className="w-4 h-4 text-zinc-400 shrink-0" />
+                <span>{isArchived ? "Aktifkan kembali" : "Nonaktifkan"}</span>
               </button>
               {(tpl.needsCheck || tpl.visibility === "tidak_terlihat") && (
                 <>
-                  <div className="border-t border-zinc-200 my-1" />
+                  <div className="border-t border-zinc-100 my-1" />
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={async () => {
+                    onClick={() => {
                       onCloseMenu();
-                      try {
-                        const res = await fetch(`/api/templates/${tpl.id}/provision`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ reuseExistingVolume: false }),
-                        });
-                        if (res.ok) {
-                          notify.success("Folder berhasil disiapkan di koneksi baru");
-                          window.location.reload();
-                        } else {
-                          notify.error("Gagal menyiapkan folder");
-                        }
-                      } catch {
-                        notify.error("Gagal menyiapkan folder");
-                      }
+                      onPrepareVolume();
                     }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-indigo-700 hover:bg-zinc-50 font-medium transition-colors cursor-pointer"
+                    className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer flex items-center gap-2.5"
                   >
-                    Siapkan folder di koneksi baru
+                    <FolderPlus className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span>Siapkan folder di Databricks</span>
                   </button>
                   <Link
                     href={`/template/baru?mode=sync&adopt=${tpl.id}`}
                     role="menuitem"
                     onClick={onCloseMenu}
-                    className="block w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                    className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
                   >
-                    Pakai folder yang sudah ada
+                    <FolderCheck className="w-4 h-4 text-zinc-400 shrink-0" />
+                    <span>Pakai folder yang sudah ada</span>
                   </Link>
                 </>
               )}
               {(tpl.status === "diarsipkan" || tpl.status === "draf") && (
                 <>
-                  <div className="border-t border-zinc-200 my-1" />
+                  <div className="border-t border-zinc-100 my-1" />
                   {isAdmin ? (
                     <button
                       type="button"
@@ -1216,9 +1320,10 @@ function TemplateCard({
                         onCloseMenu();
                         onDeletePermanent();
                       }}
-                      className="w-full text-left px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 font-medium transition-colors cursor-pointer"
+                      className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer flex items-center gap-2.5"
                     >
-                      Hapus permanen
+                      <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>Hapus permanen</span>
                     </button>
                   ) : (
                     <button
@@ -1228,9 +1333,10 @@ function TemplateCard({
                         onCloseMenu();
                         onOpenAdminLogin();
                       }}
-                      className="w-full text-left px-4 py-2.5 text-sm text-zinc-400 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-400 hover:bg-zinc-50 transition-colors cursor-pointer flex items-center gap-2.5"
                     >
-                      Hapus permanen (hanya admin)
+                      <Lock className="w-4 h-4 text-zinc-400 shrink-0" />
+                      <span>Hapus permanen (hanya admin)</span>
                     </button>
                   )}
                 </>
