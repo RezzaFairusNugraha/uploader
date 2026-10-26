@@ -195,6 +195,58 @@ export function getColumnRuleSummary(
   }
 }
 
+export function formatTemplateCardMeta(
+  columnCount: number,
+  updatedAtIso: string,
+  updaterName?: string | null
+): string {
+  let formattedDate = updatedAtIso;
+  try {
+    const d = new Date(updatedAtIso);
+    formattedDate = d.toLocaleString("id-ID", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    formattedDate = updatedAtIso;
+  }
+  const name = updaterName?.trim() || "Admin";
+  return `${columnCount} kolom · Diperbarui ${formattedDate} oleh ${name}`;
+}
+
+export function formatTemplateLastUpload(lastUploadIso?: string | null): string {
+  if (!lastUploadIso) {
+    return "Belum pernah dipakai";
+  }
+  try {
+    const d = new Date(lastUploadIso);
+    const formatted = d.toLocaleString("id-ID", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    return `Terakhir diunggah ${formatted}`;
+  } catch {
+    return `Terakhir diunggah ${lastUploadIso}`;
+  }
+}
+
+export function resolveSelectedTemplateId(
+  templates: { id: string; status: string }[],
+  queryParamId?: string | null,
+  currentSelectedId?: string
+): string {
+  if (queryParamId) {
+    const matched = templates.find((t) => t.id === queryParamId && t.status === "aktif");
+    if (matched) return matched.id;
+  }
+  if (currentSelectedId) {
+    const matchedCurrent = templates.find((t) => t.id === currentSelectedId && t.status === "aktif");
+    if (matchedCurrent) return matchedCurrent.id;
+  }
+  const firstActive = templates.find((t) => t.status === "aktif");
+  return firstActive ? firstActive.id : "";
+}
+
 export const USER_COPY = {
   nav: {
     unggah: "Unggah",

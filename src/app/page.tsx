@@ -14,7 +14,7 @@ import {
 import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import PageHeader from "@/components/PageHeader";
-import { USER_COPY } from "@/lib/copy";
+import { resolveSelectedTemplateId, USER_COPY } from "@/lib/copy";
 import { notify } from "@/lib/notify";
 import type { ConnectionState, MaskedSettings } from "@/lib/settings";
 import type { TemplateDefinition } from "@/lib/templates";
@@ -53,6 +53,7 @@ export default function UploadPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const step2Ref = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const savedName = localStorage.getItem("uploader_user_name");
@@ -60,15 +61,26 @@ export default function UploadPage() {
       setUploaderName(savedName);
     }
 
+    const searchParams = new URLSearchParams(window.location.search);
+    const queryTplId = searchParams.get("template");
+
     fetch("/api/templates")
       .then((res) => res.json())
       .then((data) => {
-        const activeTemplates = (data.templates || []).filter(
+        const rawTemplates: TemplateDefinition[] = data.templates || [];
+        const activeTemplates = rawTemplates.filter(
           (t: TemplateDefinition) => t.status === "aktif"
         );
         setTemplates(activeTemplates);
-        if (activeTemplates.length > 0) {
-          setSelectedTemplateId(activeTemplates[0].id);
+
+        const chosenId = resolveSelectedTemplateId(rawTemplates, queryTplId);
+        if (chosenId) {
+          setSelectedTemplateId(chosenId);
+          if (queryTplId && chosenId === queryTplId) {
+            setTimeout(() => {
+              step2Ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 100);
+          }
         }
       })
       .catch(() => {});
@@ -351,7 +363,7 @@ export default function UploadPage() {
       </section>
 
       {/* Langkah 2: Berkas */}
-      <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
+      <section ref={step2Ref} className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
         <div>
           <h2 className="text-xl font-semibold text-zinc-900">
             {USER_COPY.upload.step2Title}
