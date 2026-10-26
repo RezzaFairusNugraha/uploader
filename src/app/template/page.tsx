@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Upload,
   X,
@@ -64,6 +65,12 @@ const statusBadgeConfig: Record<
     bgClass: "bg-slate-100",
     textClass: "text-slate-700 border-slate-200",
   },
+  draf_deteksi: {
+    label: GLOSSARY.status.draf_deteksi,
+    dotClass: "bg-amber-500",
+    bgClass: "bg-amber-50",
+    textClass: "text-amber-800 border-amber-200",
+  },
   dihapus: {
     label: "Dihapus",
     dotClass: "bg-rose-500",
@@ -85,6 +92,7 @@ export default function TemplatePage() {
   const [templates, setTemplates] = useState<TemplateWithMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -459,6 +467,33 @@ export default function TemplatePage() {
     });
   }, [templates, statusFilter, searchQuery]);
 
+  const flaggedCount = useMemo(
+    () => templates.filter((t) => t.needsCheck).length,
+    [templates]
+  );
+
+  const handleCheckAllTemplates = async () => {
+    setIsCheckingConnection(true);
+    try {
+      const res = await fetch("/api/templates/check-connection", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal memeriksa template");
+      }
+      notify.success(
+        `Pemeriksaan selesai. ${data.totalChecked || 0} template diperiksa.`
+      );
+      await loadData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
+      notify.error(msg);
+    } finally {
+      setIsCheckingConnection(false);
+    }
+  };
+
   return (
     <div className="space-y-6 text-base max-w-4xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -467,6 +502,15 @@ export default function TemplatePage() {
           description="Template adalah contoh format file yang perlu Anda isi sebelum mengunggah."
         />
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
+          <Link href="/template/baru?mode=sync" className="w-full sm:w-auto">
+            <Button
+              variant="secondary"
+              className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]"
+            >
+              <RefreshCw className="w-4 h-4 shrink-0" />
+              <span>Sinkronkan dengan Databricks</span>
+            </Button>
+          </Link>
           <Link href="/template/perubahan" className="w-full sm:w-auto">
             <Button
               variant="secondary"
@@ -487,6 +531,26 @@ export default function TemplatePage() {
           </Link>
         </div>
       </div>
+
+      {flaggedCount > 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span className="font-medium">
+              Koneksi diganti. {flaggedCount} template perlu diperiksa.
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isCheckingConnection}
+            onClick={handleCheckAllTemplates}
+            className="whitespace-nowrap"
+          >
+            {isCheckingConnection ? "Memeriksa..." : "Periksa semua template"}
+          </Button>
+        </div>
+      )}
 
       {templates.length > 6 && (
         <div className="relative">
@@ -914,9 +978,25 @@ function TemplateCard({
   onOpenAdminLogin,
   triggerRef,
 }: TemplateCardProps) {
-  const badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
-  const isReady = tpl.status === "aktif";
+  let badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
+  if (tpl.needsCheck) {
+    badge = {
+      label: "Perlu diperiksa koneksi",
+      dotClass: "bg-amber-500",
+      bgClass: "bg-amber-50",
+      textClass: "text-amber-800 border-amber-200",
+    };
+  } else if (tpl.visibility === "tidak_terlihat") {
+    badge = {
+      label: "Folder tidak terlihat oleh koneksi saat ini",
+      dotClass: "bg-amber-500",
+      bgClass: "bg-amber-50",
+      textClass: "text-amber-800 border-amber-200",
+    };
+  }
+  const isReady = tpl.status === "aktif" && !tpl.needsCheck;
   const isArchived = tpl.status === "diarsipkan";
+  const isDraftDetection = tpl.status === "draf_deteksi";
   const menuId = useId();
 
   const menuContainerRef = useRef<HTMLDivElement>(null);
@@ -981,7 +1061,21 @@ function TemplateCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5 pt-1">
-        {isReady ? (
+        {isDraftDetection ? (
+          <Link href={`/template/baru?id=${tpl.id}&action=inspect`} className="w-full sm:w-auto">
+            <Button
+              variant="primary"
+              disabled={isPending}
+              className="w-full sm:w-auto whitespace-nowrap min-h-[44px]"
+            >
+              Periksa dan aktifkan
+            </Button>
+          </Link>
+        ) : tpl.needsCheck ? (
+          <span className="text-sm text-zinc-400 py-2 sm:py-0 w-full sm:w-auto inline-flex items-center">
+            Koneksi diganti. Template ini perlu diperiksa dulu.
+          </span>
+        ) : isReady ? (
           <Link href={`/?template=${tpl.id}`} className="w-full sm:w-auto">
             <Button
               variant="primary"
@@ -1073,6 +1167,44 @@ function TemplateCard({
               >
                 {isArchived ? "Aktifkan kembali" : "Nonaktifkan"}
               </button>
+              {(tpl.needsCheck || tpl.visibility === "tidak_terlihat") && (
+                <>
+                  <div className="border-t border-zinc-200 my-1" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={async () => {
+                      onCloseMenu();
+                      try {
+                        const res = await fetch(`/api/templates/${tpl.id}/provision`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ reuseExistingVolume: false }),
+                        });
+                        if (res.ok) {
+                          notify.success("Folder berhasil disiapkan di koneksi baru");
+                          window.location.reload();
+                        } else {
+                          notify.error("Gagal menyiapkan folder");
+                        }
+                      } catch {
+                        notify.error("Gagal menyiapkan folder");
+                      }
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-indigo-700 hover:bg-zinc-50 font-medium transition-colors cursor-pointer"
+                  >
+                    Siapkan folder di koneksi baru
+                  </button>
+                  <Link
+                    href={`/template/baru?mode=sync&adopt=${tpl.id}`}
+                    role="menuitem"
+                    onClick={onCloseMenu}
+                    className="block w-full text-left px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                  >
+                    Pakai folder yang sudah ada
+                  </Link>
+                </>
+              )}
               {(tpl.status === "diarsipkan" || tpl.status === "draf") && (
                 <>
                   <div className="border-t border-zinc-200 my-1" />

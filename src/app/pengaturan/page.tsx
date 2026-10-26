@@ -166,7 +166,11 @@ export default function DatabricksConnectionPage() {
         throw new Error(data.error || "Gagal menyimpan pengaturan");
       }
 
-      notify.success("Pengaturan koneksi Databricks berhasil disimpan");
+      if (data.message) {
+        notify.success(data.message);
+      } else {
+        notify.success("Pengaturan koneksi Databricks berhasil disimpan");
+      }
       setSavedSettings(data.settings);
       setIsChangingToken(false);
       setFormData((prev) => ({ ...prev, token: "" }));
@@ -369,6 +373,9 @@ export default function DatabricksConnectionPage() {
               required
             />
           </div>
+          <p className="text-sm text-zinc-500">
+            Pengaturan ini hanya berlaku untuk template baru.
+          </p>
 
           <Field
             id="max-upload-size"

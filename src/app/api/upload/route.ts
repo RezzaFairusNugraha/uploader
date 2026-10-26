@@ -105,9 +105,64 @@ export async function POST(request: Request) {
       );
     }
 
+    const currentHost = settings.workspaceUrl
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*$/, "")
+      .toLowerCase();
+
     const fileName = file instanceof File ? file.name : "upload.csv";
     const lowerName = fileName.toLowerCase();
     const isParquet = lowerName.endsWith(".parquet");
+
+    if ("needsCheck" in template && template.needsCheck) {
+      if (template.id) {
+        await uploadLogRepository
+          .insert({
+            templateId: template.id,
+            originalName: fileName,
+            storedName: fileName,
+            sizeBytes: file.size,
+            format: isParquet ? "parquet" : "csv",
+            destinationPath: "",
+            status: "gagal",
+            rowCount: 0,
+            errorMessage: "Koneksi diganti. Template ini perlu diperiksa dulu.",
+          })
+          .catch(() => {});
+      }
+      return NextResponse.json(
+        { error: "Koneksi diganti. Template ini perlu diperiksa dulu." },
+        { status: 400 }
+      );
+    }
+
+    if ("workspaceHost" in template && template.workspaceHost) {
+      const templateHost = template.workspaceHost
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "")
+        .toLowerCase();
+      if (templateHost !== currentHost) {
+        if (template.id) {
+          await uploadLogRepository
+            .insert({
+              templateId: template.id,
+              originalName: fileName,
+              storedName: fileName,
+              sizeBytes: file.size,
+              format: isParquet ? "parquet" : "csv",
+              destinationPath: "",
+              status: "gagal",
+              rowCount: 0,
+              errorMessage: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin.",
+            })
+            .catch(() => {});
+        }
+        return NextResponse.json(
+          { error: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin." },
+          { status: 400 }
+        );
+      }
+    }
 
     const maxBytes = settings.maxFileSizeMb * 1024 * 1024;
     if (file.size > maxBytes) {
@@ -149,7 +204,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const subfolder = isParquet ? "parquet" : "csv";
+    const subfolder = isParquet
+      ? ("parquetFolder" in template && template.parquetFolder !== undefined
+          ? template.parquetFolder
+          : "parquet")
+      : ("csvFolder" in template && template.csvFolder !== undefined
+          ? template.csvFolder
+          : "csv");
     const templateSlug =
       ("slug" in template && template.slug) || template.id || "default_slug";
     const destinationFileName = buildDestinationFileName(
@@ -197,6 +258,12 @@ export async function POST(request: Request) {
     }
 
     if (template.id) {
+      if ("workspaceHost" in template && !template.workspaceHost) {
+        await templateRepository
+          .update(template.id, { workspaceHost: currentHost })
+          .catch(() => {});
+      }
+
       await uploadLogRepository
         .insert({
           templateId: template.id,

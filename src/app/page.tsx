@@ -52,6 +52,7 @@ export default function UploadPage() {
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
+  const [uploadFailure, setUploadFailure] = useState<{ reason: string; timestamp: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const step2Ref = useRef<HTMLElement>(null);
 
@@ -243,10 +244,15 @@ export default function UploadPage() {
       loading: USER_COPY.upload.sending,
       success: (data: { destinationPath: string; fileName: string }) => {
         setUploadedPath(data.destinationPath);
+        setUploadFailure(null);
         return `${USER_COPY.upload.sentSuccess}: ${data.fileName}`;
       },
       error: (err: unknown) => {
         const msg = err instanceof Error ? err.message : "Gagal mengirim ke penyimpanan";
+        setUploadFailure({
+          reason: msg,
+          timestamp: new Date().toLocaleString("id-ID"),
+        });
         return msg;
       },
     });
@@ -263,6 +269,7 @@ export default function UploadPage() {
     setFile(null);
     setValidationResult(null);
     setUploadedPath(null);
+    setUploadFailure(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -587,6 +594,31 @@ export default function UploadPage() {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {uploadFailure && (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3 text-rose-900">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-medium">Pengunggahan gagal</p>
+                      <p className="text-sm text-rose-700">{uploadFailure.reason}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        const text = `Template: ${selectedTemplate?.name || "-"}\nWaktu: ${uploadFailure.timestamp}\nKendala: ${uploadFailure.reason}`;
+                        navigator.clipboard.writeText(text);
+                        notify.success("Pesan untuk admin berhasil disalin");
+                      }}
+                    >
+                      Salin pesan untuk admin
+                    </Button>
                   </div>
                 </div>
               )}
