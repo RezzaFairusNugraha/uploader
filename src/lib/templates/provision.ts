@@ -118,41 +118,54 @@ export async function provisionTemplate(
     }
 
     steps[2].status = "running";
-    const csvPath = `/Volumes/${catalog}/${schema}/${volumeName}/csv`;
-    const csvRes = await client.createDirectory(csvPath);
-    if (!csvRes.success && csvRes.status !== 409) {
-      steps[2].status = "error";
-      steps[2].message = csvRes.error || "Gagal membuat folder csv/";
-      await templateRepository.update(templateId, { status: "gagal" });
-      return {
-        success: false,
-        template: (await templateRepository.get(templateId)) || template,
-        steps,
-        error: steps[2].message,
-      };
+    const csvFolder = template.csvFolder ?? "csv";
+    if (csvFolder) {
+      const csvPath = `/Volumes/${catalog}/${schema}/${volumeName}/${csvFolder}`;
+      const csvRes = await client.createDirectory(csvPath);
+      if (!csvRes.success && csvRes.status !== 409) {
+        steps[2].status = "error";
+        steps[2].message = csvRes.error || `Gagal membuat folder ${csvFolder}/`;
+        await templateRepository.update(templateId, { status: "gagal" });
+        return {
+          success: false,
+          template: (await templateRepository.get(templateId)) || template,
+          steps,
+          error: steps[2].message,
+        };
+      }
     }
     steps[2].status = "success";
 
     steps[3].status = "running";
-    const parquetPath = `/Volumes/${catalog}/${schema}/${volumeName}/parquet`;
-    const parquetRes = await client.createDirectory(parquetPath);
-    if (!parquetRes.success && parquetRes.status !== 409) {
-      steps[3].status = "error";
-      steps[3].message = parquetRes.error || "Gagal membuat folder parquet/";
-      await templateRepository.update(templateId, { status: "gagal" });
-      return {
-        success: false,
-        template: (await templateRepository.get(templateId)) || template,
-        steps,
-        error: steps[3].message,
-      };
+    const parquetFolder = template.parquetFolder ?? "parquet";
+    if (parquetFolder) {
+      const parquetPath = `/Volumes/${catalog}/${schema}/${volumeName}/${parquetFolder}`;
+      const parquetRes = await client.createDirectory(parquetPath);
+      if (!parquetRes.success && parquetRes.status !== 409) {
+        steps[3].status = "error";
+        steps[3].message = parquetRes.error || `Gagal membuat folder ${parquetFolder}/`;
+        await templateRepository.update(templateId, { status: "gagal" });
+        return {
+          success: false,
+          template: (await templateRepository.get(templateId)) || template,
+          steps,
+          error: steps[3].message,
+        };
+      }
     }
     steps[3].status = "success";
 
     steps[4].status = "running";
+    const workspaceHost = settings.workspaceUrl
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*$/, "")
+      .toLowerCase();
+
     template = await templateRepository.update(templateId, {
       status: "aktif",
       volumeCreatedByApp,
+      workspaceHost,
+      needsCheck: false,
     });
     steps[4].status = "success";
 

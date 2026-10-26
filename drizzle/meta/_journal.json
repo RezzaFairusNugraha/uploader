@@ -15,6 +15,13 @@
       "when": 1792983146079,
       "tag": "0001_natural_genesis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792995472312,
+      "tag": "0002_old_rhino",
+      "breakpoints": true
     }
   ]
 }

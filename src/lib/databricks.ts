@@ -7,6 +7,11 @@ export interface DatabricksResponse<T = unknown> {
   error?: string;
 }
 
+export interface UnityCatalogCatalogInfo {
+  name: string;
+  comment?: string;
+}
+
 export interface UnityCatalogSchemaInfo {
   name: string;
   catalog_name: string;
@@ -21,6 +26,14 @@ export interface UnityCatalogVolumeInfo {
   comment?: string;
 }
 
+export interface DirectoryEntry {
+  path: string;
+  name: string;
+  is_directory: boolean;
+  file_size?: number;
+  modification_time?: number;
+}
+
 export interface VolumeContentsSummary {
   csvFiles: number;
   csvSize: number;
@@ -32,6 +45,8 @@ export interface VolumeContentsSummary {
 }
 
 export interface DatabricksClient {
+  listCatalogs: () => Promise<DatabricksResponse<{ catalogs: UnityCatalogCatalogInfo[] }>>;
+  listSchemas: (catalog: string) => Promise<DatabricksResponse<{ schemas: UnityCatalogSchemaInfo[] }>>;
   getSchema: (catalog: string, schema: string) => Promise<DatabricksResponse<UnityCatalogSchemaInfo>>;
   getVolume: (catalog: string, schema: string, name: string) => Promise<DatabricksResponse<UnityCatalogVolumeInfo>>;
   listVolumes: (catalog: string, schema: string) => Promise<DatabricksResponse<{ volumes?: UnityCatalogVolumeInfo[] }>>;
@@ -45,8 +60,12 @@ export interface DatabricksClient {
   listVolumeContents: (
     slugOrPath: string,
     catalog?: string,
-    schema?: string
+    schema?: string,
+    csvFolder?: string,
+    parquetFolder?: string
   ) => Promise<DatabricksResponse<VolumeContentsSummary>>;
+  listDirectory: (path: string) => Promise<DatabricksResponse<{ contents: DirectoryEntry[] }>>;
+  readRange: (path: string, start: number, length: number) => Promise<DatabricksResponse<Uint8Array>>;
   createDirectory: (path: string) => Promise<DatabricksResponse>;
   checkDirectory: (directoryPath: string) => Promise<DatabricksResponse>;
   uploadFile: (filePath: string, body: BodyInit) => Promise<DatabricksResponse>;
@@ -132,6 +151,62 @@ export function createDatabricksClient(
   };
 
   return {
+    async listCatalogs(): Promise<DatabricksResponse<{ catalogs: UnityCatalogCatalogInfo[] }>> {
+      const all: UnityCatalogCatalogInfo[] = [];
+      let pageToken: string | undefined = undefined;
+      while (true) {
+        let endpoint = "/api/2.1/unity-catalog/catalogs";
+        if (pageToken) {
+          endpoint += `?page_token=${encodeURIComponent(pageToken)}`;
+        }
+        const res = await executeJson<{ catalogs?: UnityCatalogCatalogInfo[]; next_page_token?: string }>(
+          endpoint,
+          "GET",
+          undefined,
+          "getSchema"
+        );
+        if (!res.success) {
+          return { success: false, status: res.status, error: res.error };
+        }
+        if (res.data?.catalogs) {
+          all.push(...res.data.catalogs);
+        }
+        if (!res.data?.next_page_token) {
+          break;
+        }
+        pageToken = res.data.next_page_token;
+      }
+      return { success: true, data: { catalogs: all } };
+    },
+
+    async listSchemas(catalog: string): Promise<DatabricksResponse<{ schemas: UnityCatalogSchemaInfo[] }>> {
+      const all: UnityCatalogSchemaInfo[] = [];
+      let pageToken: string | undefined = undefined;
+      while (true) {
+        let endpoint = `/api/2.1/unity-catalog/schemas?catalog_name=${encodeURIComponent(catalog)}`;
+        if (pageToken) {
+          endpoint += `&page_token=${encodeURIComponent(pageToken)}`;
+        }
+        const res = await executeJson<{ schemas?: UnityCatalogSchemaInfo[]; next_page_token?: string }>(
+          endpoint,
+          "GET",
+          undefined,
+          "getSchema"
+        );
+        if (!res.success) {
+          return { success: false, status: res.status, error: res.error };
+        }
+        if (res.data?.schemas) {
+          all.push(...res.data.schemas);
+        }
+        if (!res.data?.next_page_token) {
+          break;
+        }
+        pageToken = res.data.next_page_token;
+      }
+      return { success: true, data: { schemas: all } };
+    },
+
     async getSchema(catalog: string, schema: string): Promise<DatabricksResponse<UnityCatalogSchemaInfo>> {
       return executeJson<UnityCatalogSchemaInfo>(
         `/api/2.1/unity-catalog/schemas/${encodeURIComponent(catalog)}.${encodeURIComponent(schema)}`,
@@ -157,13 +232,32 @@ export function createDatabricksClient(
     async listVolumes(
       catalog: string,
       schema: string
-    ): Promise<DatabricksResponse<{ volumes?: UnityCatalogVolumeInfo[] }>> {
-      return executeJson<{ volumes?: UnityCatalogVolumeInfo[] }>(
-        `/api/2.1/unity-catalog/volumes?catalog_name=${encodeURIComponent(catalog)}&schema_name=${encodeURIComponent(schema)}`,
-        "GET",
-        undefined,
-        "listVolumes"
-      );
+    ): Promise<DatabricksResponse<{ volumes: UnityCatalogVolumeInfo[] }>> {
+      const all: UnityCatalogVolumeInfo[] = [];
+      let pageToken: string | undefined = undefined;
+      while (true) {
+        let endpoint = `/api/2.1/unity-catalog/volumes?catalog_name=${encodeURIComponent(catalog)}&schema_name=${encodeURIComponent(schema)}`;
+        if (pageToken) {
+          endpoint += `&page_token=${encodeURIComponent(pageToken)}`;
+        }
+        const res = await executeJson<{ volumes?: UnityCatalogVolumeInfo[]; next_page_token?: string }>(
+          endpoint,
+          "GET",
+          undefined,
+          "listVolumes"
+        );
+        if (!res.success) {
+          return { success: false, status: res.status, error: res.error };
+        }
+        if (res.data?.volumes) {
+          all.push(...res.data.volumes);
+        }
+        if (!res.data?.next_page_token) {
+          break;
+        }
+        pageToken = res.data.next_page_token;
+      }
+      return { success: true, data: { volumes: all } };
     },
 
     async createVolume(
@@ -335,7 +429,9 @@ export function createDatabricksClient(
     async listVolumeContents(
       slugOrPath: string,
       catalog?: string,
-      schema?: string
+      schema?: string,
+      csvFolder?: string,
+      parquetFolder?: string
     ): Promise<DatabricksResponse<VolumeContentsSummary>> {
       let basePath = slugOrPath;
       if (basePath.startsWith("/Volumes/")) {
@@ -415,11 +511,16 @@ export function createDatabricksClient(
       };
 
       const MAX_TOTAL = 5000;
-      const csvRes = await walkFolder(`${basePath}/csv`, MAX_TOTAL);
+      const csvSub = csvFolder !== undefined ? csvFolder : "csv";
+      const parquetSub = parquetFolder !== undefined ? parquetFolder : "parquet";
+      const csvPath = csvSub ? `${basePath}/${csvSub}` : basePath;
+      const parquetPath = parquetSub ? `${basePath}/${parquetSub}` : basePath;
+
+      const csvRes = await walkFolder(csvPath, MAX_TOTAL);
       const remaining = MAX_TOTAL - csvRes.count;
       const parquetRes =
         remaining > 0
-          ? await walkFolder(`${basePath}/parquet`, remaining)
+          ? await walkFolder(parquetPath, remaining)
           : { count: 0, size: 0, capped: true };
 
       const isCapped = csvRes.capped || parquetRes.capped;
@@ -436,6 +537,117 @@ export function createDatabricksClient(
           capped: isCapped,
         },
       };
+    },
+
+    async listDirectory(dirPath: string): Promise<DatabricksResponse<{ contents: DirectoryEntry[] }>> {
+      const cleanPath = dirPath.startsWith("/") ? dirPath : `/${dirPath}`;
+      const all: DirectoryEntry[] = [];
+      let pageToken: string | undefined = undefined;
+
+      while (true) {
+        let url = `${normalizedBase}/api/2.0/fs/directories${encodeURI(cleanPath)}`;
+        if (pageToken) {
+          url += `?page_token=${encodeURIComponent(pageToken)}`;
+        }
+
+        try {
+          const response = await fetch(url, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (response.status === 404) {
+            return { success: true, data: { contents: [] } };
+          }
+          if (!response.ok) {
+            return {
+              success: false,
+              status: response.status,
+              error: mapStatusToMessage(response.status, "directory"),
+            };
+          }
+
+          const data = (await response.json()) as {
+            contents?: Array<{
+              path?: string;
+              is_directory?: boolean;
+              file_size?: number;
+              modification_time?: number;
+            }>;
+            next_page_token?: string;
+          };
+
+          for (const item of data.contents || []) {
+            const rawPath = item.path || "";
+            const name = rawPath.split("/").filter(Boolean).pop() || "";
+            all.push({
+              path: rawPath,
+              name,
+              is_directory: Boolean(item.is_directory),
+              file_size: item.file_size,
+              modification_time: item.modification_time,
+            });
+          }
+
+          if (!data.next_page_token) {
+            break;
+          }
+          pageToken = data.next_page_token;
+        } catch {
+          return {
+            success: false,
+            error: "Host tidak terjangkau atau koneksi terputus",
+          };
+        }
+      }
+
+      return { success: true, data: { contents: all } };
+    },
+
+    async readRange(
+      filePath: string,
+      start: number,
+      length: number
+    ): Promise<DatabricksResponse<Uint8Array>> {
+      const cleanPath = filePath.startsWith("/") ? filePath : `/${filePath}`;
+      const url = `${normalizedBase}/api/2.0/fs/files${encodeURI(cleanPath)}`;
+
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Range: `bytes=${start}-${start + length - 1}`,
+          },
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (response.status === 404) {
+          return { success: false, status: 404, error: "File tidak ditemukan" };
+        }
+        if (!response.ok && response.status !== 206) {
+          return {
+            success: false,
+            status: response.status,
+            error: mapStatusToMessage(response.status, "upload"),
+          };
+        }
+
+        const buffer = await response.arrayBuffer();
+        let bytes = new Uint8Array(buffer);
+        if (response.status === 200 && bytes.length > length) {
+          bytes = bytes.subarray(start, start + length);
+        }
+        return { success: true, data: bytes };
+      } catch {
+        return {
+          success: false,
+          error: "Host tidak terjangkau atau koneksi terputus",
+        };
+      }
     },
   };
 }

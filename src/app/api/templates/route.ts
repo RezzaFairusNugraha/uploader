@@ -16,6 +16,8 @@ const CreateTemplateBodySchema = z.object({
   description: z.string().optional().default(""),
   delimiter: TemplateDelimiterSchema,
   volume: VolumeConfigSchema,
+  csvFolder: z.string().optional().default("csv"),
+  parquetFolder: z.string().optional().default("parquet"),
   columns: z.array(ColumnDefinitionSchema).default([]),
 });
 
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, description, delimiter, volume, columns } = parsed.data;
+    const { name, description, delimiter, volume, columns, csvFolder, parquetFolder } = parsed.data;
     const slug = parsed.data.slug?.trim() || slugify(name);
     const now = new Date().toISOString();
 
@@ -50,6 +52,9 @@ export async function POST(request: Request) {
       status: "membuat",
       volume,
       volumeCreatedByApp: false,
+      csvFolder,
+      parquetFolder,
+      needsCheck: false,
       version: 1,
       createdAt: now,
       updatedAt: now,

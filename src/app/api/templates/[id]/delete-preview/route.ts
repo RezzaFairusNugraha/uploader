@@ -86,7 +86,9 @@ export async function GET(
   const volRes = await client.listVolumeContents(
     template.volume.name,
     template.volume.catalog,
-    template.volume.schema
+    template.volume.schema,
+    template.csvFolder,
+    template.parquetFolder
   );
 
   const summary = volRes.data || {

@@ -46,9 +46,9 @@ export function getDestinationSubfolder(
 ): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".parquet")) {
-    return subfolderParquet || "parquet";
+    return subfolderParquet !== undefined ? subfolderParquet : "parquet";
   }
-  return subfolderCsv || "csv";
+  return subfolderCsv !== undefined ? subfolderCsv : "csv";
 }
 
 export function buildVolumePath(
@@ -64,5 +64,8 @@ export function buildVolumePath(
   const cleanSubfolder = subfolder.trim();
   const cleanFileName = fileName.trim();
 
+  if (!cleanSubfolder) {
+    return `/Volumes/${cleanCatalog}/${cleanSchema}/${cleanVolume}/${cleanFileName}`;
+  }
   return `/Volumes/${cleanCatalog}/${cleanSchema}/${cleanVolume}/${cleanSubfolder}/${cleanFileName}`;
 }

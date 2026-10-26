@@ -11,6 +11,7 @@ export const GLOSSARY = {
     gagal: "Gagal disiapkan",
     diarsipkan: "Nonaktif",
     draf: "Draf",
+    draf_deteksi: "Draf, perlu diperiksa",
   },
 } as const;
 

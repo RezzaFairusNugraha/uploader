@@ -5,3 +5,4 @@ export * from "./compat";
 export * from "./fixtures";
 export * from "./provision";
 export * from "./infer";
+export * from "./versions";
