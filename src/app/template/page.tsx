@@ -144,31 +144,44 @@ export default function TemplatePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="Daftar Template"
-          description="Semua orang dapat membuat dan memperbarui template pemeriksaan berkas."
+          description="Template adalah contoh format file yang harus diisi. Semua orang dapat membuat dan memperbarui template."
         />
-        <div className="flex items-center gap-2">
-          <Link href="/template/perubahan">
-            <Button variant="secondary">
-              <History className="w-4 h-4 mr-1.5 inline" />
-              Riwayat Perubahan
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+          <Link href="/template/perubahan" className="w-full sm:w-auto">
+            <Button variant="secondary" className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]">
+              <History className="w-4 h-4 shrink-0" />
+              <span>Riwayat perubahan</span>
             </Button>
           </Link>
-          <Link href="/template/baru">
-            <Button variant="primary">
-              <Plus className="w-4 h-4 mr-1.5 inline" />
-              Buat template
+          <Link href="/template/baru" className="w-full sm:w-auto">
+            <Button variant="primary" className="w-full sm:w-auto whitespace-nowrap gap-2 min-h-[44px]">
+              <Plus className="w-4 h-4 shrink-0" />
+              <span>Buat template</span>
             </Button>
           </Link>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-sm text-zinc-500">
+        <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-base text-zinc-500">
           Memuat daftar template...
         </div>
       ) : templates.length === 0 ? (
-        <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-sm text-zinc-500">
-          Belum ada template yang dibuat. Klik tombol Buat template untuk memulai.
+        <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center space-y-4">
+          <div className="space-y-1">
+            <p className="text-base font-semibold text-zinc-900">Belum ada template.</p>
+            <p className="text-base text-zinc-500">
+              Buat template pertama untuk mulai mengunggah file.
+            </p>
+          </div>
+          <div>
+            <Link href="/template/baru">
+              <Button variant="primary">
+                <Plus className="w-4 h-4 mr-1.5 inline" />
+                Buat template
+              </Button>
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
