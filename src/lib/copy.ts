@@ -71,6 +71,130 @@ export function mapFriendlyError(err: unknown): FriendlyError {
   };
 }
 
+export interface ColumnRuleSummaryResult {
+  text: string;
+  isIncomplete: boolean;
+}
+
+export function isColumnRuleIncomplete(rule: { type: string; [key: string]: unknown }): boolean {
+  if (!rule || !rule.type) return true;
+  switch (rule.type) {
+    case "digits": {
+      const len = rule.length;
+      return typeof len !== "number" || isNaN(len) || len <= 0;
+    }
+    case "list": {
+      const vals = rule.values;
+      return !Array.isArray(vals) || vals.length === 0 || vals.every((v) => typeof v === "string" && !v.trim());
+    }
+    case "integer": {
+      const min = rule.min;
+      const max = rule.max;
+      if (typeof min === "number" && typeof max === "number" && min > max) return true;
+      return false;
+    }
+    case "text": {
+      const min = rule.minLength;
+      const max = rule.maxLength;
+      if (typeof min === "number" && typeof max === "number" && min > max) return true;
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+export function getColumnRuleSummary(
+  rule: { type: string; [key: string]: unknown },
+  required: boolean
+): ColumnRuleSummaryResult {
+  const isIncomplete = isColumnRuleIncomplete(rule);
+  if (isIncomplete) {
+    return {
+      text: "Aturan belum lengkap",
+      isIncomplete: true,
+    };
+  }
+
+  const reqLabel = required ? "Wajib diisi" : "Boleh kosong";
+
+  switch (rule.type) {
+    case "digits": {
+      const len = (rule.length as number) || 9;
+      return {
+        text: `Kode angka · ${len} digit · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+    case "integer": {
+      const min = rule.min as number | undefined;
+      const max = rule.max as number | undefined;
+      let detail = "semua angka";
+      if (min !== undefined && max !== undefined) {
+        detail = `${min} sampai ${max}`;
+      } else if (min !== undefined) {
+        detail = `min ${min}`;
+      } else if (max !== undefined) {
+        detail = `maks ${max}`;
+      }
+      return {
+        text: `Bilangan bulat · ${detail} · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+    case "decimal": {
+      const allowComma = (rule.allowComma as boolean) ?? true;
+      const allowDot = (rule.allowDot as boolean) ?? true;
+      let detail = "angka desimal";
+      if (allowComma && allowDot) {
+        detail = "koma atau titik";
+      } else if (allowComma) {
+        detail = "koma";
+      } else if (allowDot) {
+        detail = "titik";
+      }
+      return {
+        text: `Angka desimal · ${detail} · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+    case "date": {
+      const fmt = (rule.format as string) || "yyyy-MM-dd";
+      return {
+        text: `Tanggal · ${fmt} · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+    case "list": {
+      const values = ((rule.values as string[]) || []).filter(Boolean);
+      const sample = values.slice(0, 2).join(", ");
+      const more = values.length > 2 ? "..." : "";
+      const detail = values.length > 0 ? `${sample}${more}` : "pilihan";
+      return {
+        text: `Pilihan dari daftar · ${detail} · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+    case "text":
+    default: {
+      const minLen = rule.minLength as number | undefined;
+      const maxLen = rule.maxLength as number | undefined;
+      let detail = "tanpa batas";
+      if (minLen && maxLen) {
+        detail = `${minLen}-${maxLen} karakter`;
+      } else if (maxLen) {
+        detail = `maks ${maxLen} karakter`;
+      } else if (minLen) {
+        detail = `min ${minLen} karakter`;
+      }
+      return {
+        text: `Teks bebas · ${detail} · ${reqLabel}`,
+        isIncomplete: false,
+      };
+    }
+  }
+}
+
 export const USER_COPY = {
   nav: {
     unggah: "Unggah",

@@ -1,23 +1,25 @@
 export const sortableAccessibility = {
   announcements: {
-    onDragStart({ active }: { active: { id: string | number; data?: { current?: { name?: string; index?: number } } } }) {
+    onDragStart({ active }: { active: { id: string | number; data?: { current?: { name?: string; index?: number; total?: number } } } }) {
       const name = active.data?.current?.name || active.id;
       const index = (active.data?.current?.index ?? 0) + 1;
-      return `Kolom ${name} diangkat. Posisi ${index}.`;
+      const total = active.data?.current?.total;
+      return total
+        ? `Kolom ${name} diangkat. Posisi ${index} dari ${total}.`
+        : `Kolom ${name} diangkat. Posisi ${index}.`;
     },
     onDragOver({ active, over }: { active: { id: string | number; data?: { current?: { name?: string } } }; over?: { id: string | number; data?: { current?: { index?: number } } } | null }) {
       if (!over) return undefined;
       const name = active.data?.current?.name || active.id;
       const overIndex = (over.data?.current?.index ?? 0) + 1;
-      return `Kolom ${name} dipindahkan ke posisi ${overIndex}.`;
+      return `Kolom ${name} dipindah ke posisi ${overIndex}.`;
     },
     onDragEnd({ active, over }: { active: { id: string | number; data?: { current?: { name?: string } } }; over?: { id: string | number; data?: { current?: { index?: number } } } | null }) {
       const name = active.data?.current?.name || active.id;
       if (!over) {
         return `Pemindahan kolom ${name} dibatalkan.`;
       }
-      const overIndex = (over.data?.current?.index ?? 0) + 1;
-      return `Kolom ${name} diletakkan di posisi ${overIndex}.`;
+      return `Kolom ${name} diletakkan.`;
     },
     onDragCancel({ active }: { active: { id: string | number; data?: { current?: { name?: string } } } }) {
       const name = active.data?.current?.name || active.id;

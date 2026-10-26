@@ -3,6 +3,10 @@ import { toast } from "sonner";
 export interface NotifyOptions {
   description?: string;
   duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 export const notify = {
@@ -10,6 +14,7 @@ export const notify = {
     return toast.success(title, {
       description: options?.description,
       duration: options?.duration ?? 3500,
+      action: options?.action,
     });
   },
 
@@ -17,6 +22,7 @@ export const notify = {
     return toast.info(title, {
       description: options?.description,
       duration: options?.duration ?? 3500,
+      action: options?.action,
     });
   },
 
