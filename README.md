@@ -27,7 +27,7 @@ bun run build
 ```bash
 docker compose up -d --build
 ```
-Aplikasi berjalan pada `http://127.0.0.1:3000`. Kredensial dan kunci enkripsi disimpan di volume bernama `uploader_data` yang terpasang pada `/app/data`.
+Aplikasi berjalan pada `http://127.0.0.1:3000`. Pengaturan disimpan di database Postgres (Neon) dengan token terenkripsi.
 
 ## Izin Akses Databricks
 
@@ -39,42 +39,11 @@ Token akses memerlukan izin berikut pada Unity Catalog:
 
 ## Menambahkan Template Baru
 
-Aturan validasi disimpan terpusat per template:
-
-1. Buat berkas baru di `src/lib/templates/<id-template>.ts`:
-```typescript
-import { rules, type TemplateConfig } from "./types";
-
-export const templateBaru: TemplateConfig = {
-  id: "template-baru",
-  name: "Template Baru",
-  description: "Keterangan data.",
-  kind: "csv",
-  delimiter: ";",
-  fileNamePrefix: "template_baru",
-  columns: [
-    {
-      name: "kode",
-      label: "Kode",
-      required: true,
-      rule: rules.digits(5),
-    },
-  ],
-  exampleRows: [["12345"]],
-};
-```
-
-2. Daftarkan template di `src/lib/templates/index.ts`:
-```typescript
-import { templateBaru } from "./<id-template>";
-
-export const templates: TemplateConfig[] = [
-  targetBrandDistributionTemplate,
-  hariBesarTemplate,
-  dataResearchTemplate,
-  templateBaru,
-];
-```
+Template dapat dibuat langsung melalui antarmuka web:
+1. Buka halaman **Template** (`/template`).
+2. Klik tombol **Buat template** (`/template/baru`).
+3. Isi informasi dasar (nama template, pemisah kolom), konfigurasi kolom dan aturan pengisian, serta folder penyimpanan.
+4. Simpan template. Template yang siap dipakai dapat langsung digunakan untuk validasi dan pengunggahan berkas.
 
 ## Konfigurasi Nginx
 

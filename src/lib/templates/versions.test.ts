@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
   FakeInMemoryTemplateVersionRepository,
-  type TemplateVersionItem,
 } from "./versions";
 import type { TemplateDefinition } from "./schema";
 
@@ -38,7 +37,7 @@ describe("TemplateVersionRepository", () => {
     expect(ver1.id).toBeDefined();
     expect(ver1.version).toBe(1);
 
-    const ver2 = await repo.add({
+    await repo.add({
       templateId: dummyTemplate.id,
       version: 2,
       snapshot: { ...dummyTemplate, version: 2 },

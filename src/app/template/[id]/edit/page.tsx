@@ -21,7 +21,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import Button from "@/components/Button";
-import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
 import {
@@ -254,15 +253,6 @@ function EditTemplateForm({
         };
       })
     );
-  };
-
-  const moveColumn = (index: number, direction: "up" | "down") => {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= columns.length) return;
-    const nextCols = [...columns];
-    const [moved] = nextCols.splice(index, 1);
-    nextCols.splice(targetIndex, 0, moved);
-    setColumns(nextCols);
   };
 
   const handleSave = async (e: React.FormEvent) => {

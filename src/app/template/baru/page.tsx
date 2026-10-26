@@ -249,15 +249,6 @@ export default function NewTemplatePage() {
     });
   };
 
-  const moveColumn = (index: number, direction: "up" | "down") => {
-    const targetIdx = direction === "up" ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= columns.length) return;
-    const updated = [...columns];
-    const [moved] = updated.splice(index, 1);
-    updated.splice(targetIdx, 0, moved);
-    setColumns(updated);
-  };
-
   const updateColumn = (id: string, patch: Partial<ColumnDraft>) => {
     setColumns((prev) =>
       prev.map((c) => {

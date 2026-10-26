@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Lock, LogOut, ShieldAlert, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, Lock, LogOut, XCircle } from "lucide-react";
 import Button from "@/components/Button";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
@@ -34,7 +34,6 @@ export default function DatabricksConnectionPage() {
   const [formData, setFormData] = useState<FormState>(initialFormState);
   const [savedSettings, setSavedSettings] = useState<MaskedSettings | null>(null);
   const [isChangingToken, setIsChangingToken] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
@@ -58,7 +57,6 @@ export default function DatabricksConnectionPage() {
   };
 
   const loadSettings = async () => {
-    setIsLoading(true);
     try {
       const res = await fetch("/api/settings");
       if (res.ok) {
@@ -78,8 +76,6 @@ export default function DatabricksConnectionPage() {
         }
       }
     } catch {
-    } finally {
-      setIsLoading(false);
     }
   };
 
