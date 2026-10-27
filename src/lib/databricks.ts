@@ -357,7 +357,7 @@ export function createDatabricksClient(
             "Content-Type": "application/octet-stream",
           },
           body,
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(60000),
         });
 
         if (response.ok) {

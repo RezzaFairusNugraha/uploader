@@ -88,14 +88,21 @@ export default function HistoryPage() {
                       {item.uploaderName || "-"}
                     </td>
                     <td className="py-3 px-4">
-                      {item.status === "success" ? (
+                      {item.status === "berhasil" || item.status === "success" ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                           Berhasil
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">
-                          Gagal
-                        </span>
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                            Gagal
+                          </span>
+                          {item.errorMessage && (
+                            <p className="text-xs text-rose-600 max-w-xs truncate" title={item.errorMessage}>
+                              {item.errorMessage}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="py-3 px-4 text-xs font-mono text-zinc-500 max-w-xs truncate">

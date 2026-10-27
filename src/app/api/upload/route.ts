@@ -22,6 +22,10 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     const templateId = formData.get("templateId");
+    const uploaderName =
+      typeof formData.get("uploaderName") === "string"
+        ? (formData.get("uploaderName") as string).trim() || null
+        : null;
 
     if (!file || !(file instanceof Blob) || typeof templateId !== "string") {
       return NextResponse.json(
@@ -126,6 +130,7 @@ export async function POST(request: Request) {
             destinationPath: "",
             status: "gagal",
             rowCount: 0,
+            uploaderName,
             errorMessage: "Koneksi diganti. Template ini perlu diperiksa dulu.",
           })
           .catch(() => {});
@@ -153,6 +158,7 @@ export async function POST(request: Request) {
               destinationPath: "",
               status: "gagal",
               rowCount: 0,
+              uploaderName,
               errorMessage: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin.",
             })
             .catch(() => {});
@@ -247,6 +253,7 @@ export async function POST(request: Request) {
             destinationPath,
             status: "gagal",
             rowCount: validationResult.summary.rowCount,
+            uploaderName,
             errorMessage: putRes.error || "Gagal mengunggah berkas ke Databricks",
           })
           .catch(() => {});
@@ -274,6 +281,7 @@ export async function POST(request: Request) {
           destinationPath,
           status: "berhasil",
           rowCount: validationResult.summary.rowCount,
+          uploaderName,
         })
         .catch(() => {});
     }
