@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { getEnv } from "@/platform/env";
 import {
   checkRateLimit,
   hashPassword,
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
       const cookieStore = await cookies();
       cookieStore.set("admin_session", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: getEnv("NODE_ENV") === "production",
         sameSite: "lax",
         maxAge: 8 * 60 * 60,
         path: "/",
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
     const cookieStore = await cookies();
     cookieStore.set("admin_session", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: getEnv("NODE_ENV") === "production",
       sameSite: "lax",
       maxAge: 8 * 60 * 60,
       path: "/",

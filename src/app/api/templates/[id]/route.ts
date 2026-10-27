@@ -22,6 +22,8 @@ const UpdateTemplateBodySchema = z.object({
   changedBy: z.string().optional(),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }

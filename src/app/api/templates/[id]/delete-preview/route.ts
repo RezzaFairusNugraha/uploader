@@ -6,6 +6,8 @@ import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
 import { uploadLogRepository } from "@/lib/upload/log";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

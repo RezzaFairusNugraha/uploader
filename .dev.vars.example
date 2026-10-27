@@ -1,0 +1,2 @@
+DATABASE_URL=postgresql://user:password@endpoint-pooler.region.aws.neon.tech/neondb?sslmode=require
+ENCRYPTION_KEY=your-32-byte-base64-encryption-key

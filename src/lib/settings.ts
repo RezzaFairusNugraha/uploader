@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { createDb, withDbRetry } from "@/db";
 import { appSettings } from "@/db/schema";
+import { getEnv } from "@/platform/env";
 
 export interface EncryptedData {
   iv: string;
@@ -52,7 +53,7 @@ export interface MaskedSettings {
 }
 
 export function getEncryptionKey(): Buffer {
-  const envKey = process.env.ENCRYPTION_KEY;
+  const envKey = getEnv("ENCRYPTION_KEY");
   if (!envKey) {
     throw new Error(
       "ENCRYPTION_KEY belum dikonfigurasi. Hubungi administrator untuk mengisi kunci enkripsi (32 byte base64)."

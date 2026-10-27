@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { uploadLogRepository } from "@/lib/upload/log";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const list = await uploadLogRepository.listRecent(50);

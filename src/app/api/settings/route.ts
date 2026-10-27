@@ -14,6 +14,8 @@ import { templateRepository } from "@/lib/templates/repository";
 
 import { connection } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   await connection();
   const conn = await getConnectionState();

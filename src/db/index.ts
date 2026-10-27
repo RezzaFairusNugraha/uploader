@@ -1,9 +1,10 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
+import { getEnv } from "@/platform/env";
 import * as schema from "./schema";
 
 export function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL;
+  const url = getEnv("DATABASE_URL");
   if (!url) {
     throw new Error(
       "DATABASE_URL belum dikonfigurasi. Hubungi administrator untuk mengisi variabel lingkungan di pengaturan deployment."

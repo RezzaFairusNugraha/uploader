@@ -21,6 +21,8 @@ const CreateTemplateBodySchema = z.object({
   columns: z.array(ColumnDefinitionSchema).default([]),
 });
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   await connection();
   const templates = await templateRepository.list();

@@ -1,6 +1,9 @@
 import { scryptSync, randomBytes, timingSafeEqual, createHmac } from "node:crypto";
+import { getEnv } from "@/platform/env";
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "";
+function getAdminSecret(): string {
+  return getEnv("ENCRYPTION_KEY") || "fallback_admin_secret_key_antigravity";
+}
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -21,7 +24,7 @@ export function verifyPassword(password: string, combinedHash: string): boolean 
 }
 
 export function signAdminToken(): string {
-  const secret = ENCRYPTION_KEY || "fallback_admin_secret_key_antigravity";
+  const secret = getAdminSecret();
   const expiresAt = Date.now() + 8 * 60 * 60 * 1000;
   const payload = `admin:${expiresAt}`;
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
@@ -30,7 +33,7 @@ export function signAdminToken(): string {
 
 export function verifyAdminToken(token: string): boolean {
   try {
-    const secret = ENCRYPTION_KEY || "fallback_admin_secret_key_antigravity";
+    const secret = getAdminSecret();
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return false;
 

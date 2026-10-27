@@ -3,6 +3,8 @@ import { createDatabricksClient } from "@/lib/databricks";
 import { readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);

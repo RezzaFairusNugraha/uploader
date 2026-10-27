@@ -1,16 +1,16 @@
 import { NextResponse, connection } from "next/server";
 import { getConnectionState, readMaskedSettings } from "@/lib/settings";
+import { getEnv } from "@/platform/env";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   await connection();
   const missingEnv: string[] = [];
-  if (!process.env.DATABASE_URL) {
+  if (!getEnv("DATABASE_URL")) {
     missingEnv.push("DATABASE_URL");
   }
-  if (!process.env.DIRECT_DATABASE_URL) {
-    missingEnv.push("DIRECT_DATABASE_URL");
-  }
-  if (!process.env.ENCRYPTION_KEY) {
+  if (!getEnv("ENCRYPTION_KEY")) {
     missingEnv.push("ENCRYPTION_KEY");
   }
 
