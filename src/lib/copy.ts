@@ -284,6 +284,7 @@ export const USER_COPY = {
     sentSuccess: "File terkirim",
     uploadAnother: "Unggah berkas lain",
     downloadIssuesCsv: "Unduh daftar masalah (.csv)",
+    fullValidationInBrowser: "Diperiksa lengkap di browser Anda.",
     uploaderNameLabel: "Nama Pengunggah",
     uploaderNamePlaceholder: "Masukkan nama Anda",
     noTemplates: "Belum ada template aktif yang siap digunakan.",

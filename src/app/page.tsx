@@ -48,6 +48,7 @@ export default function UploadPage() {
   const [isValidating, setIsValidating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [settings, setSettings] = useState<MaskedSettings | null>(null);
+  const [serverValidation, setServerValidation] = useState<"full" | "light">("full");
   const [connectionState, setConnectionState] = useState<ConnectionState | null>(null);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -99,6 +100,9 @@ export default function UploadPage() {
         }
         if (data?.settings) {
           setSettings(data.settings);
+        }
+        if (data?.limits?.serverValidation) {
+          setServerValidation(data.limits.serverValidation);
         }
       })
       .catch(() => {
@@ -222,23 +226,49 @@ export default function UploadPage() {
     if (!file || !selectedTemplate || !validationResult?.ok) return;
 
     setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("templateId", selectedTemplate.id);
-    if (uploaderName.trim()) {
-      formData.append("uploaderName", uploaderName.trim());
-    }
+    let uploadPromise: Promise<{ destinationPath: string; fileName: string }>;
 
-    const uploadPromise = fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    }).then(async (res) => {
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Gagal mengirim berkas");
+    if (serverValidation === "light") {
+      const uploaderParam = uploaderName.trim()
+        ? `&uploaderName=${encodeURIComponent(uploaderName.trim())}`
+        : "";
+      const url = `/api/upload/${encodeURIComponent(
+        selectedTemplate.id
+      )}?name=${encodeURIComponent(file.name)}${uploaderParam}`;
+
+      uploadPromise = fetch(url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(file.size),
+        },
+        body: file,
+      }).then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Gagal mengirim berkas");
+        }
+        return data;
+      });
+    } else {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("templateId", selectedTemplate.id);
+      if (uploaderName.trim()) {
+        formData.append("uploaderName", uploaderName.trim());
       }
-      return data;
-    });
+
+      uploadPromise = fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      }).then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Gagal mengirim berkas");
+        }
+        return data;
+      });
+    }
 
     notify.promise(uploadPromise, {
       loading: USER_COPY.upload.sending,
@@ -512,6 +542,11 @@ export default function UploadPage() {
                       <div className="text-base text-emerald-800">
                         Total {validationResult.summary.rowCount.toLocaleString("id-ID")} baris data dan{" "}
                         {validationResult.summary.columnCount} kolom telah diverifikasi.
+                        {serverValidation === "light" && (
+                          <span className="block mt-1 font-medium">
+                            {USER_COPY.upload.fullValidationInBrowser}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

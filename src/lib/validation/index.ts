@@ -14,6 +14,7 @@ import type {
 export * from "./types";
 export * from "./detect-delimiter";
 export * from "./rules";
+export * from "./light";
 
 const MAX_STORED_ISSUES = 200;
 const DEFAULT_MAX_PARQUET_SCAN_BYTES = 20 * 1024 * 1024;

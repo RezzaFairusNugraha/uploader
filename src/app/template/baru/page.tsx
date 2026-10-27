@@ -33,6 +33,7 @@ import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
+import { syncVolumesLoop, type SyncProgress } from "@/lib/templates/sync";
 import {
   SortableColumnRow,
   DragOverlayColumnRow,
@@ -171,8 +172,10 @@ export default function NewTemplatePage() {
   const [tidakTerlihatList, setTidakTerlihatList] = useState<TidakTerlihatItem[]>([]);
   const [selectedSyncVolumes, setSelectedSyncVolumes] = useState<Set<string>>(new Set());
   const [isLoadingDiscovery, setIsLoadingDiscovery] = useState(false);
+  const [discoveryProgress, setDiscoveryProgress] = useState<SyncProgress | null>(null);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<SyncProgress | null>(null);
   const [inspectingVolumeName, setInspectingVolumeName] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -245,6 +248,7 @@ export default function NewTemplatePage() {
     if (!selectedCatalog || !selectedSchema) return;
     setIsLoadingDiscovery(true);
     setDiscoveryError(null);
+    setDiscoveryProgress(null);
     try {
       const res = await fetch(
         `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}&schema=${encodeURIComponent(selectedSchema)}`
@@ -253,14 +257,43 @@ export default function NewTemplatePage() {
       if (!res.ok) {
         throw new Error(data.error || "Gagal memuat folder penyimpanan Databricks");
       }
-      setDiscoveredVolumes(data.volumes || []);
+      const rawVolumes: DiscoveredVolumeItem[] = data.volumes || [];
+      setDiscoveredVolumes(rawVolumes);
       setTidakTerlihatList(data.tidakTerlihat || []);
       setSelectedSyncVolumes(new Set());
+
+      const toInspect = rawVolumes.filter((v) => v.status !== "sudah_template");
+      if (toInspect.length > 0) {
+        await syncVolumesLoop(
+          toInspect,
+          async (vol) => {
+            const detailRes = await fetch(
+              `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}&schema=${encodeURIComponent(selectedSchema)}&volume=${encodeURIComponent(vol.name)}`
+            );
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              if (detailData.volume) {
+                setDiscoveredVolumes((prev) =>
+                  prev.map((item) =>
+                    item.name.toLowerCase() === vol.name.toLowerCase()
+                      ? { ...item, ...detailData.volume }
+                      : item
+                  )
+                );
+              }
+            }
+          },
+          (progress) => {
+            setDiscoveryProgress(progress);
+          }
+        );
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
       setDiscoveryError(msg);
     } finally {
       setIsLoadingDiscovery(false);
+      setDiscoveryProgress(null);
     }
   };
 
@@ -625,27 +658,40 @@ export default function NewTemplatePage() {
   const handleBulkImport = async () => {
     if (selectedSyncVolumes.size === 0) return;
     setIsBulkImporting(true);
+    setImportProgress(null);
     try {
-      const res = await fetch("/api/databricks/import-drafts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          catalog: selectedCatalog,
-          schema: selectedSchema,
-          volumes: Array.from(selectedSyncVolumes),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Gagal membuat draf");
-      }
-      notify.success(`${data.imported || 0} draf berhasil dibuat`);
+      const volList = Array.from(selectedSyncVolumes);
+      let importedCount = 0;
+      await syncVolumesLoop(
+        volList,
+        async (volName) => {
+          const res = await fetch("/api/databricks/import-drafts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              catalog: selectedCatalog,
+              schema: selectedSchema,
+              volume: volName,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            importedCount += (data.imported || 0);
+          }
+          return data;
+        },
+        (progress) => {
+          setImportProgress(progress);
+        }
+      );
+      notify.success(`${importedCount} draf berhasil dibuat`);
       router.push("/template");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
       notify.error(msg);
     } finally {
       setIsBulkImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -952,6 +998,36 @@ export default function NewTemplatePage() {
                 </div>
               )}
             </div>
+
+            {importProgress && (
+              <div className="w-full space-y-1 my-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                <div className="flex justify-between text-sm text-zinc-600 font-medium">
+                  <span>{importProgress.label}</span>
+                  <span>{Math.round((importProgress.current / importProgress.total) * 100)}%</span>
+                </div>
+                <div className="w-full h-2 bg-zinc-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-600 transition-all duration-300"
+                    style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {discoveryProgress && (
+              <div className="w-full space-y-1 mb-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                <div className="flex justify-between text-sm text-zinc-600 font-medium">
+                  <span>{discoveryProgress.label}</span>
+                  <span>{Math.round((discoveryProgress.current / discoveryProgress.total) * 100)}%</span>
+                </div>
+                <div className="w-full h-2 bg-zinc-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-600 transition-all duration-300"
+                    style={{ width: `${(discoveryProgress.current / discoveryProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {isLoadingDiscovery ? (
               <div className="py-12 space-y-3">

@@ -8,14 +8,22 @@ import {
   type TemplateDefinition,
 } from "@/lib/templates";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { catalog, schema, volumes } = body;
+    const { catalog, schema } = body;
+    const volumeName =
+      typeof body.volume === "string" && body.volume.trim()
+        ? body.volume.trim()
+        : Array.isArray(body.volumes) && body.volumes.length > 0
+        ? String(body.volumes[0]).trim()
+        : null;
 
-    if (!catalog || !schema || !Array.isArray(volumes) || volumes.length === 0) {
+    if (!catalog || !schema || !volumeName) {
       return NextResponse.json(
-        { error: "Katalog, skema, dan daftar folder wajib diisi" },
+        { error: "Katalog, skema, dan nama folder wajib diisi" },
         { status: 400 }
       );
     }
@@ -36,81 +44,77 @@ export async function POST(request: Request) {
     const client = createDatabricksClient(settings.workspaceUrl, settings.token);
     const existingTemplates = await templateRepository.list();
 
-    let importedCount = 0;
-    let skippedCount = 0;
-    const createdTemplates: TemplateDefinition[] = [];
+    const alreadyExists = existingTemplates.some(
+      (t) =>
+        t.volume.catalog.toLowerCase() === catalog.toLowerCase() &&
+        t.volume.schema.toLowerCase() === schema.toLowerCase() &&
+        t.volume.name.toLowerCase() === volumeName.toLowerCase()
+    );
 
-    for (const volumeName of volumes) {
-      const alreadyExists = existingTemplates.some(
-        (t) =>
-          t.volume.catalog.toLowerCase() === catalog.toLowerCase() &&
-          t.volume.schema.toLowerCase() === schema.toLowerCase() &&
-          t.volume.name.toLowerCase() === volumeName.toLowerCase()
-      );
-
-      if (alreadyExists) {
-        skippedCount++;
-        continue;
-      }
-
-      const inspectResult = await inspectVolume(client, catalog, schema, volumeName);
-      const draft = inspectResult.draft;
-
-      const baseSlug = draft.slug;
-      let finalSlug = baseSlug;
-      let counter = 2;
-      while (await templateRepository.getBySlug(finalSlug)) {
-        finalSlug = `${baseSlug.slice(0, 50)}_${counter}`;
-        counter++;
-      }
-
-      const now = new Date().toISOString();
-      const newTemplate: TemplateDefinition = {
-        id: crypto.randomUUID(),
-        name: draft.name,
-        slug: finalSlug,
-        description: "",
-        delimiter: draft.delimiter,
-        status: "draf_deteksi",
-        volume: {
-          catalog,
-          schema,
-          name: volumeName,
-        },
-        volumeCreatedByApp: false,
-        csvFolder: draft.csvFolder || "csv",
-        parquetFolder: draft.parquetFolder || "parquet",
-        workspaceHost,
-        needsCheck: false,
-        columns: draft.columns,
-        version: 1,
-        createdBy: "Deteksi otomatis",
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const saved = await templateRepository.create(newTemplate);
-      await templateVersionRepository.add({
-        templateId: saved.id,
-        version: 1,
-        snapshot: saved,
-        changeSummary: "Template diimpor dari folder Databricks",
-        isBreaking: false,
-        changedBy: "Deteksi otomatis",
+    if (alreadyExists) {
+      return NextResponse.json({
+        success: true,
+        imported: 0,
+        skipped: 1,
+        created: [],
       });
-
-      createdTemplates.push(saved);
-      importedCount++;
     }
+
+    const inspectResult = await inspectVolume(client, catalog, schema, volumeName);
+    const draft = inspectResult.draft;
+
+    const baseSlug = draft.slug;
+    let finalSlug = baseSlug;
+    let counter = 2;
+    while (await templateRepository.getBySlug(finalSlug)) {
+      finalSlug = `${baseSlug.slice(0, 50)}_${counter}`;
+      counter++;
+    }
+
+    const now = new Date().toISOString();
+    const newTemplate: TemplateDefinition = {
+      id: crypto.randomUUID(),
+      name: draft.name,
+      slug: finalSlug,
+      description: "",
+      delimiter: draft.delimiter,
+      status: "draf_deteksi",
+      volume: {
+        catalog,
+        schema,
+        name: volumeName,
+      },
+      volumeCreatedByApp: false,
+      csvFolder: draft.csvFolder || "csv",
+      parquetFolder: draft.parquetFolder || "parquet",
+      workspaceHost,
+      needsCheck: false,
+      columns: draft.columns,
+      version: 1,
+      createdBy: "Deteksi otomatis",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const saved = await templateRepository.create(newTemplate);
+    await templateVersionRepository.add({
+      templateId: saved.id,
+      version: 1,
+      snapshot: saved,
+      changeSummary: "Template diimpor dari folder Databricks",
+      isBreaking: false,
+      changedBy: "Deteksi otomatis",
+    });
 
     return NextResponse.json({
       success: true,
-      imported: importedCount,
-      skipped: skippedCount,
-      templates: createdTemplates,
+      imported: 1,
+      skipped: 0,
+      created: [saved],
+      template: saved,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan saat mengimpor draf";
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

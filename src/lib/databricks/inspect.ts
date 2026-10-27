@@ -1,6 +1,7 @@
 import Papa from "papaparse";
 import { parquetMetadata, parquetMetadataAsync, parquetReadObjects } from "hyparquet";
 import type { DatabricksClient, DirectoryEntry } from "@/lib/databricks";
+import { getLimits } from "@/platform/limits";
 import {
   type ColumnDefinition,
   type ColumnRule,
@@ -364,12 +365,16 @@ export async function inspectVolume(
     };
   }
 
+  const limits = getLimits();
+  const maxFiles = limits.serverValidation === "light" ? 3 : 5;
+  const maxRows = limits.maxInspectRows;
+
   const newestCsv = [...csvFiles]
     .sort((a, b) => b.modificationTime - a.modificationTime)
-    .slice(0, 5);
+    .slice(0, maxFiles);
   const newestParquet = [...parquetFiles]
     .sort((a, b) => b.modificationTime - a.modificationTime)
-    .slice(0, 5);
+    .slice(0, maxFiles);
 
   const sampledResults: SampledFileResult[] = [];
 
@@ -388,7 +393,7 @@ export async function inspectVolume(
 
       const delimiter = detectCsvDelimiter(text);
       const parsed = Papa.parse<Record<string, unknown>>(text, {
-        preview: 2000,
+        preview: maxRows,
         header: true,
         delimiter,
         skipEmptyLines: true,
@@ -429,7 +434,7 @@ export async function inspectVolume(
           records = (await parquetReadObjects({
             file: buf,
             rowStart: 0,
-            rowEnd: 2000,
+            rowEnd: maxRows,
           })) as Record<string, unknown>[];
         }
       } else {
@@ -451,7 +456,7 @@ export async function inspectVolume(
         records = (await parquetReadObjects({
           file: asyncBuffer,
           rowStart: 0,
-          rowEnd: 2000,
+          rowEnd: maxRows,
         })) as Record<string, unknown>[];
       }
 

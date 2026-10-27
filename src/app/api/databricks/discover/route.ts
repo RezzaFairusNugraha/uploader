@@ -27,42 +27,22 @@ export async function GET(request: Request) {
     }
 
     const client = createDatabricksClient(settings.workspaceUrl, settings.token);
-    const volumesRes = await client.listVolumes(catalog, schema);
+    const singleVolume = searchParams.get("volume");
 
-    if (!volumesRes.success) {
-      return NextResponse.json(
-        { error: volumesRes.error || "Gagal memuat folder penyimpanan Databricks" },
-        { status: volumesRes.status || 500 }
+    if (singleVolume) {
+      const allTemplates = await templateRepository.list();
+      const matched = allTemplates.find(
+        (t) =>
+          t.volume.catalog.toLowerCase() === catalog.toLowerCase() &&
+          t.volume.schema.toLowerCase() === schema.toLowerCase() &&
+          t.volume.name.toLowerCase() === singleVolume.toLowerCase()
       );
-    }
-
-    const databricksVolumes = volumesRes.data?.volumes || [];
-    const allTemplates = await templateRepository.list();
-
-    const matchingTemplates = allTemplates.filter(
-      (t) =>
-        t.volume.catalog.toLowerCase() === catalog.toLowerCase() &&
-        t.volume.schema.toLowerCase() === schema.toLowerCase()
-    );
-
-    const templateByVolumeName = new Map<string, typeof matchingTemplates[0]>();
-    for (const t of matchingTemplates) {
-      templateByVolumeName.set(t.volume.name.toLowerCase(), t);
-    }
-
-    const seenVolumeNames = new Set<string>();
-    const volumeItems = [];
-
-    for (const vol of databricksVolumes) {
-      const volLower = vol.name.toLowerCase();
-      seenVolumeNames.add(volLower);
-      const matched = templateByVolumeName.get(volLower);
 
       let csvFiles = 0;
       let parquetFiles = 0;
       const unsupportedMap = new Map<string, number>();
 
-      const rootRes = await client.listDirectory(`/Volumes/${catalog}/${schema}/${vol.name}`);
+      const rootRes = await client.listDirectory(`/Volumes/${catalog}/${schema}/${singleVolume}`);
       const entries = rootRes.success && rootRes.data ? rootRes.data.contents : [];
 
       for (const entry of entries) {
@@ -105,14 +85,59 @@ export async function GET(request: Request) {
         status = "bukan_template";
       }
 
+      return NextResponse.json({
+        volume: {
+          name: singleVolume,
+          catalog,
+          schema,
+          status,
+          csvFiles,
+          parquetFiles,
+          unsupportedFormats,
+          templateId: matched?.id,
+          templateName: matched?.name,
+        },
+      });
+    }
+
+    const volumesRes = await client.listVolumes(catalog, schema);
+    if (!volumesRes.success) {
+      return NextResponse.json(
+        { error: volumesRes.error || "Gagal memuat folder penyimpanan Databricks" },
+        { status: volumesRes.status || 500 }
+      );
+    }
+
+    const databricksVolumes = volumesRes.data?.volumes || [];
+    const allTemplates = await templateRepository.list();
+
+    const matchingTemplates = allTemplates.filter(
+      (t) =>
+        t.volume.catalog.toLowerCase() === catalog.toLowerCase() &&
+        t.volume.schema.toLowerCase() === schema.toLowerCase()
+    );
+
+    const templateByVolumeName = new Map<string, typeof matchingTemplates[0]>();
+    for (const t of matchingTemplates) {
+      templateByVolumeName.set(t.volume.name.toLowerCase(), t);
+    }
+
+    const seenVolumeNames = new Set<string>();
+    const volumeItems = [];
+
+    for (const vol of databricksVolumes) {
+      const volLower = vol.name.toLowerCase();
+      seenVolumeNames.add(volLower);
+      const matched = templateByVolumeName.get(volLower);
+
       volumeItems.push({
         name: vol.name,
         catalog,
         schema,
-        status,
-        csvFiles,
-        parquetFiles,
-        unsupportedFormats,
+        status: matched ? ("sudah_template" as const) : ("belum_template" as const),
+        csvFiles: 0,
+        parquetFiles: 0,
+        unsupportedFormats: [],
         templateId: matched?.id,
         templateName: matched?.name,
       });

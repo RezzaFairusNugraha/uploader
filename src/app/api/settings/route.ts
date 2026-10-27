@@ -11,6 +11,7 @@ import {
   settingsFormSchema,
 } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
+import { getLimits } from "@/platform/limits";
 
 import { connection } from "next/server";
 
@@ -25,6 +26,7 @@ export async function GET() {
       configured: false,
       error: conn.error,
       connection: conn,
+      limits: getLimits(),
     });
   }
 
@@ -32,6 +34,7 @@ export async function GET() {
     configured: conn.ready,
     settings,
     connection: conn,
+    limits: getLimits(settings?.maxFileSizeMb),
   });
 }
 

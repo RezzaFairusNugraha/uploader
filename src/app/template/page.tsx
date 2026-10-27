@@ -28,6 +28,7 @@ import {
   formatTemplateLastUpload,
   GLOSSARY,
 } from "@/lib/copy";
+import { syncVolumesLoop, type SyncProgress } from "@/lib/templates/sync";
 import type { TemplateDefinition, TemplateStatus } from "@/lib/templates";
 
 interface TemplateWithMeta extends TemplateDefinition {
@@ -89,6 +90,7 @@ export default function TemplatePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  const [checkProgress, setCheckProgress] = useState<SyncProgress | null>(null);
   const [isPreparingAll, setIsPreparingAll] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
@@ -483,16 +485,31 @@ export default function TemplatePage() {
 
   const handleCheckAllTemplates = async () => {
     setIsCheckingConnection(true);
+    setCheckProgress(null);
     try {
-      const res = await fetch("/api/templates/check-connection", {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Gagal memeriksa template");
+      const targets = templates.filter(
+        (t) => t.needsCheck || t.visibility === "tidak_terlihat"
+      );
+      if (targets.length === 0) {
+        notify.success("Semua template sudah dalam kondisi baik.");
+        return;
       }
+      await syncVolumesLoop(
+        targets,
+        async (tpl) => {
+          const res = await fetch("/api/templates/check-connection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ templateId: tpl.id }),
+          });
+          return res.json();
+        },
+        (progress) => {
+          setCheckProgress(progress);
+        }
+      );
       notify.success(
-        `Pemeriksaan selesai. ${data.totalChecked || 0} template diperiksa.`
+        `Pemeriksaan selesai. ${targets.length} template diperiksa.`
       );
       await loadData();
     } catch (err: unknown) {
@@ -500,6 +517,7 @@ export default function TemplatePage() {
       notify.error(msg);
     } finally {
       setIsCheckingConnection(false);
+      setCheckProgress(null);
     }
   };
 
@@ -644,6 +662,20 @@ export default function TemplatePage() {
               {isPreparingAll ? "Menyiapkan..." : "Siapkan semua folder"}
             </Button>
           </div>
+          {checkProgress && (
+            <div className="w-full space-y-1 mt-2">
+              <div className="flex justify-between text-sm text-amber-800">
+                <span>{checkProgress.label}</span>
+                <span>{Math.round((checkProgress.current / checkProgress.total) * 100)}%</span>
+              </div>
+              <div className="w-full h-2 bg-amber-200/70 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-600 transition-all duration-300"
+                  style={{ width: `${(checkProgress.current / checkProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

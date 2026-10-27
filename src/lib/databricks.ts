@@ -350,6 +350,8 @@ export function createDatabricksClient(
       const url = `${normalizedBase}/api/2.0/fs/files${encodeURI(cleanPath)}?overwrite=false`;
 
       try {
+        const isStream =
+          typeof ReadableStream !== "undefined" && body instanceof ReadableStream;
         const response = await fetch(url, {
           method: "PUT",
           headers: {
@@ -358,7 +360,8 @@ export function createDatabricksClient(
           },
           body,
           signal: AbortSignal.timeout(60000),
-        });
+          ...(isStream ? { duplex: "half" } : {}),
+        } as RequestInit);
 
         if (response.ok) {
           return { success: true, status: response.status };
