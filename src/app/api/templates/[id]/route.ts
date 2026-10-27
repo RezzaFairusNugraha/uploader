@@ -99,3 +99,35 @@ export async function PUT(
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params;
+    const template = await templateRepository.get(id);
+    if (!template) {
+      return NextResponse.json({ success: true });
+    }
+
+    if (
+      template.status === "membuat" ||
+      template.status === "gagal" ||
+      template.status === "draf" ||
+      template.status === "draf_deteksi"
+    ) {
+      await templateRepository.markDeleted(id, "Dibatalkan");
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json(
+      { error: "Hanya template yang belum aktif atau sedang disiapkan yang dapat dibatalkan langsung." },
+      { status: 400 }
+    );
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Gagal membatalkan template";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}

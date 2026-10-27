@@ -38,9 +38,15 @@ export async function POST(
     );
   }
 
-  if (template.status !== "diarsipkan" && template.status !== "draf") {
+  if (
+    template.status !== "diarsipkan" &&
+    template.status !== "draf" &&
+    template.status !== "draf_deteksi" &&
+    template.status !== "gagal" &&
+    template.status !== "membuat"
+  ) {
     return NextResponse.json(
-      { error: "Hanya template berstatus Nonaktif atau Draf yang dapat dihapus." },
+      { error: "Hanya template berstatus Nonaktif, Draf, atau belum aktif yang dapat dihapus." },
       { status: 400 }
     );
   }

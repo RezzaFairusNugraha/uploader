@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { GET as deletePreviewRoute } from "@/app/api/templates/[id]/delete-preview/route";
 import { POST as deleteRoute } from "@/app/api/templates/[id]/delete/route";
+import { DELETE as cancelTemplateRoute } from "@/app/api/templates/[id]/route";
 import { signAdminToken } from "@/lib/adminAuth";
 import { createDatabricksClient } from "@/lib/databricks";
 import { FakeInMemorySettingsStore, setSettingsStore } from "@/lib/settings";
@@ -339,5 +340,72 @@ describe("Guarded Permanent Delete Flow", () => {
     const previewData = await previewRes.json();
     expect(previewData.volumeOwnedByApp).toBe(true);
     expect(previewData.capped).toBe(true);
+  });
+
+  it("cancel an uncompleted or failed template without admin", async () => {
+    const failedTemplate: TemplateDefinition = {
+      id: crypto.randomUUID(),
+      name: "Template Gagal",
+      slug: "template_gagal",
+      description: "",
+      delimiter: ",",
+      status: "gagal",
+      volume: { catalog: "main", schema: "default", name: "template_gagal" },
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      columns: [{ name: "kolom1", required: true, rule: { type: "text" } }],
+    };
+    await templateRepo.create(failedTemplate);
+
+    const cancelReq = new Request(`http://localhost/api/templates/${failedTemplate.id}`, {
+      method: "DELETE",
+    });
+    const cancelRes = await cancelTemplateRoute(cancelReq, {
+      params: Promise.resolve({ id: failedTemplate.id }),
+    });
+    expect(cancelRes.status).toBe(200);
+
+    const remaining = await templateRepo.list();
+    expect(remaining.find((t) => t.id === failedTemplate.id)).toBeUndefined();
+  });
+
+  it("permanent delete allows templates in status gagal or membuat", async () => {
+    const creatingTemplate: TemplateDefinition = {
+      id: crypto.randomUUID(),
+      name: "Template Batal",
+      slug: "template_batal",
+      description: "",
+      delimiter: ",",
+      status: "membuat",
+      volume: { catalog: "main", schema: "default", name: "template_batal" },
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      columns: [{ name: "kolom1", required: true, rule: { type: "text" } }],
+    };
+    await templateRepo.create(creatingTemplate);
+
+    const delReq = new Request(
+      `http://localhost/api/templates/${creatingTemplate.id}/delete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `admin_session=${validToken}`,
+        },
+        body: JSON.stringify({
+          confirmName: creatingTemplate.name,
+          deletedBy: "Admin",
+        }),
+      }
+    );
+    const delRes = await deleteRoute(delReq, {
+      params: Promise.resolve({ id: creatingTemplate.id }),
+    });
+    expect(delRes.status).toBe(200);
+
+    const remaining = await templateRepo.list();
+    expect(remaining.find((t) => t.id === creatingTemplate.id)).toBeUndefined();
   });
 });

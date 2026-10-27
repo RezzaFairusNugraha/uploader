@@ -315,6 +315,23 @@ export default function TemplatePage() {
     }
   };
 
+  const handleCancelFailedTemplate = async (tpl: TemplateWithMeta) => {
+    setPendingActionId(tpl.id);
+    try {
+      const res = await fetch(`/api/templates/${tpl.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "Gagal membatalkan template");
+      }
+      notify.success(`Template ${tpl.name} berhasil dibatalkan`);
+      await loadData();
+    } catch {
+      notify.error("Gagal membatalkan template. Coba lagi.");
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
   useEffect(() => {
     if (!deleteTarget) return;
 
@@ -764,6 +781,7 @@ export default function TemplatePage() {
               onDeletePermanent={() => openDeleteDialog(tpl)}
               onOpenAdminLogin={() => openAdminLogin(tpl)}
               onPrepareVolume={() => handlePrepareVolume(tpl)}
+              onCancelFailed={() => handleCancelFailedTemplate(tpl)}
               triggerRef={(el) => {
                 menuTriggerRefs.current[tpl.id] = el;
               }}
@@ -1021,6 +1039,7 @@ interface TemplateCardProps {
   onDeletePermanent: () => void;
   onOpenAdminLogin: () => void;
   onPrepareVolume: () => void;
+  onCancelFailed?: () => void;
   triggerRef: (el: HTMLButtonElement | null) => void;
 }
 
@@ -1037,6 +1056,7 @@ function TemplateCard({
   onDeletePermanent,
   onOpenAdminLogin,
   onPrepareVolume,
+  onCancelFailed,
   triggerRef,
 }: TemplateCardProps) {
   let badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
@@ -1190,6 +1210,31 @@ function TemplateCard({
               <span>Unggah file</span>
             </Button>
           </Link>
+        ) : tpl.status === "gagal" || tpl.status === "membuat" ? (
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <Button
+              type="button"
+              variant="primary"
+              disabled={isPending}
+              onClick={onPrepareVolume}
+              className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2"
+            >
+              <RefreshCw className="w-4 h-4 shrink-0" />
+              <span>Coba siapkan lagi</span>
+            </Button>
+            {onCancelFailed && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isPending}
+                onClick={onCancelFailed}
+                className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>Hapus</span>
+              </Button>
+            )}
+          </div>
         ) : (
           <span className="text-sm text-zinc-400 py-2 sm:py-0 w-full sm:w-auto inline-flex items-center">
             Template belum siap dipakai
@@ -1309,7 +1354,11 @@ function TemplateCard({
                   </Link>
                 </>
               )}
-              {(tpl.status === "diarsipkan" || tpl.status === "draf") && (
+              {(tpl.status === "diarsipkan" ||
+                tpl.status === "draf" ||
+                tpl.status === "gagal" ||
+                tpl.status === "membuat" ||
+                tpl.status === "draf_deteksi") && (
                 <>
                   <div className="border-t border-zinc-100 my-1" />
                   {isAdmin ? (

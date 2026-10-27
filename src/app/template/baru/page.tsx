@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -264,6 +264,83 @@ export default function NewTemplatePage() {
     }
   };
 
+  const resetForm = useCallback(() => {
+    setName("");
+    setSlug("");
+    setIsSlugCustomized(false);
+    setDescription("");
+    setDelimiter(",");
+    setCsvFolder("csv");
+    setParquetFolder("parquet");
+    setIsVerifyingDraft(false);
+    setVerifyingTemplateId(null);
+    setVerifyingVolumeName(null);
+    setCurrentTemplateId(null);
+    setProvisionSteps(null);
+    setVolumeExistsError(null);
+    setDetectedWarnings([]);
+    setDetectedOtherGroups([]);
+    setSelectedSyncVolumes(new Set());
+    setColumns([
+      {
+        id: generateStableColumnId(),
+        name: "",
+        required: true,
+        type: "text",
+        rule: { type: "text" },
+        isExpanded: true,
+      },
+    ]);
+  }, []);
+
+  const handleCancel = async () => {
+    if (currentTemplateId && !isVerifyingDraft) {
+      try {
+        await fetch(`/api/templates/${currentTemplateId}`, {
+          method: "DELETE",
+        });
+      } catch {}
+    }
+    resetForm();
+    router.push("/template");
+  };
+
+  const handleGantiSlug = async () => {
+    if (currentTemplateId && !isVerifyingDraft) {
+      try {
+        await fetch(`/api/templates/${currentTemplateId}`, {
+          method: "DELETE",
+        });
+      } catch {}
+      setCurrentTemplateId(null);
+    }
+    setVolumeExistsError(null);
+    setProvisionSteps(null);
+  };
+
+  const handleCloseProvisionError = async () => {
+    if (currentTemplateId && !isVerifyingDraft) {
+      try {
+        await fetch(`/api/templates/${currentTemplateId}`, {
+          method: "DELETE",
+        });
+      } catch {}
+      setCurrentTemplateId(null);
+    }
+    setProvisionSteps(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (currentTemplateId && !isVerifyingDraft) {
+        fetch(`/api/templates/${currentTemplateId}`, {
+          method: "DELETE",
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+  }, [currentTemplateId, isVerifyingDraft]);
+
   useEffect(() => {
     const saved = localStorage.getItem("uploader_user_name");
     if (saved) setUserName(saved);
@@ -293,14 +370,15 @@ export default function NewTemplatePage() {
     const inspectId = searchParams.get("id");
     const action = searchParams.get("action");
 
-    if (mode === "sync") {
-      setActiveTab("sync");
-    }
-
     if (inspectId && action === "inspect") {
       loadDraftForInspection(inspectId);
+    } else {
+      resetForm();
+      if (mode === "sync") {
+        setActiveTab("sync");
+      }
     }
-  }, []);
+  }, [resetForm]);
 
   useEffect(() => {
     if (activeTab === "sync") {
@@ -434,6 +512,7 @@ export default function NewTemplatePage() {
         throw new Error(data.error || "Gagal memproses template ke Databricks");
       }
 
+      setCurrentTemplateId(null);
       notify.success("Template berhasil dibuat dan diaktifkan");
       setTimeout(() => {
         router.push("/template");
@@ -1346,11 +1425,14 @@ export default function NewTemplatePage() {
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            <Link href="/template">
-              <Button type="button" variant="ghost">
-                Batal
-              </Button>
-            </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleCancel}
+              disabled={isSubmitting}
+            >
+              Batal
+            </Button>
 
             <Button
               type="submit"
@@ -1423,7 +1505,7 @@ export default function NewTemplatePage() {
                   <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>{volumeExistsError.message}</div>
                 </div>
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   <Button
                     type="button"
                     variant="primary"
@@ -1436,12 +1518,18 @@ export default function NewTemplatePage() {
                     type="button"
                     variant="secondary"
                     disabled={isSubmitting}
-                    onClick={() => {
-                      setVolumeExistsError(null);
-                      setProvisionSteps(null);
-                    }}
+                    onClick={handleGantiSlug}
                   >
                     Ganti slug
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={isSubmitting}
+                    onClick={handleCancel}
+                    className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                  >
+                    Batalkan pembuatan
                   </Button>
                 </div>
               </div>
@@ -1450,22 +1538,32 @@ export default function NewTemplatePage() {
             {provisionSteps?.some((s) => s.status === "error") &&
               !volumeExistsError &&
               currentTemplateId && (
-                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-100">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100">
                   <Button
                     type="button"
-                    variant="secondary"
-                    onClick={() => setProvisionSteps(null)}
+                    variant="ghost"
+                    onClick={handleCancel}
+                    className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                   >
-                    Tutup
+                    Batalkan pembuatan
                   </Button>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    disabled={isSubmitting}
-                    onClick={() => runProvisioning(currentTemplateId, false)}
-                  >
-                    Coba lagi
-                  </Button>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleCloseProvisionError}
+                    >
+                      Tutup
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={isSubmitting}
+                      onClick={() => runProvisioning(currentTemplateId, false)}
+                    >
+                      Coba lagi
+                    </Button>
+                  </div>
                 </div>
               )}
           </div>
