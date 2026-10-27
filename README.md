@@ -68,3 +68,47 @@ server {
     }
 }
 ```
+
+## Penerapan ke Cloudflare Workers
+
+Anda dapat menjalankan aplikasi ini pada layanan Cloudflare Workers. Berikut langkah-langkah penyiapannya:
+
+### 1. Menyiapkan Akun dan Kunci Akses Cloudflare
+1. Buat akun di Cloudflare jika Anda belum memilikinya.
+2. Buat token API Cloudflare melalui menu profil dengan memilih template **Edit Cloudflare Workers**.
+3. Simpan **Account ID** dan token API yang baru saja dibuat.
+
+### 2. Menambahkan Rahasia pada GitHub
+Tambahkan dua rahasia (secrets) pada repositori GitHub Anda di menu **Settings > Secrets and variables > Actions**:
+- `CLOUDFLARE_API_TOKEN`: Token API yang telah Anda buat.
+- `CLOUDFLARE_ACCOUNT_ID`: ID akun Cloudflare Anda.
+
+### 3. Menjalankan Migrasi Database dari Komputer Anda
+Jalankan migrasi struktur database dari laptop/komputer Anda terlebih dahulu menggunakan perintah:
+```bash
+bun run db:migrate
+```
+
+### 4. Menyimpan Kunci Rahasia Runtime ke Cloudflare
+Simpan dua variabel rahasia aplikasi ke Cloudflare Workers menggunakan Wrangler (cukup dilakukan sekali):
+```bash
+bunx wrangler secret put DATABASE_URL
+bunx wrangler secret put ENCRYPTION_KEY
+```
+Masukkan URL database Neon dan kunci enkripsi 32-byte Anda saat diminta.
+
+### 5. Menjalankan Alur Kerja Penerapan
+1. Buka menu **Actions** di repositori GitHub Anda.
+2. Pilih alur kerja **Deploy to Cloudflare Workers**.
+3. Klik tombol **Run workflow** untuk memulai proses pengiriman ke Cloudflare.
+
+### 6. Membuka Aplikasi dan Mengisi Koneksi
+1. Setelah alur kerja selesai, buka alamat URL Cloudflare Workers yang diberikan.
+2. Masuk ke menu **Koneksi Databricks** dan lengkapi alamat workspace serta token Databricks Anda.
+
+### Batasan Paket Gratis Cloudflare Workers
+Pada paket gratis (Free plan), terdapat beberapa batasan sistem yang perlu Anda ketahui:
+- Waktu kerja prosesor (CPU) maksimal 10 ms per permintaan.
+- Ukuran kode aplikasi terkompresi maksimal 3 MiB.
+- Maksimal 50 permintaan keluar (subrequests) per permintaan HTTP.
+- Pemeriksaan di sisi server berjalan dalam mode ringan (pemeriksaan berkas secara menyeluruh tetap dilakukan di peramban Anda).
