@@ -17,16 +17,43 @@ export async function GET(request: Request) {
     }
 
     const catalog = searchParams.get("catalog") || settings.catalog || "";
-    const schema = searchParams.get("schema") || settings.schema || "";
-
-    if (!catalog || !schema) {
+    if (!catalog) {
       return NextResponse.json(
-        { error: "Katalog dan skema Databricks wajib ditentukan" },
+        { error: "Katalog Databricks wajib ditentukan" },
         { status: 400 }
       );
     }
 
     const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+    const schema = searchParams.get("schema");
+
+    if (!schema) {
+      const schemasRes = await client.listSchemas(catalog);
+      if (!schemasRes.success) {
+        return NextResponse.json(
+          { error: schemasRes.error || "Gagal memuat skema Databricks" },
+          { status: schemasRes.status || 500 }
+        );
+      }
+
+      const filteredSchemas = (schemasRes.data?.schemas || [])
+        .map((s) => s.name)
+        .filter((name) => {
+          const lower = name.toLowerCase();
+          return (
+            lower !== "information_schema" &&
+            lower !== "default" &&
+            !name.startsWith("_") &&
+            !name.startsWith(".")
+          );
+        });
+
+      return NextResponse.json({
+        catalog,
+        schemas: filteredSchemas,
+      });
+    }
+
     const singleVolume = searchParams.get("volume");
 
     if (singleVolume) {
@@ -117,17 +144,15 @@ export async function GET(request: Request) {
         t.volume.schema.toLowerCase() === schema.toLowerCase()
     );
 
-    const templateByVolumeName = new Map<string, typeof matchingTemplates[0]>();
+    const templateByVolumeName = new Map<string, (typeof matchingTemplates)[0]>();
     for (const t of matchingTemplates) {
       templateByVolumeName.set(t.volume.name.toLowerCase(), t);
     }
 
-    const seenVolumeNames = new Set<string>();
     const volumeItems = [];
 
     for (const vol of databricksVolumes) {
       const volLower = vol.name.toLowerCase();
-      seenVolumeNames.add(volLower);
       const matched = templateByVolumeName.get(volLower);
 
       volumeItems.push({
@@ -143,22 +168,10 @@ export async function GET(request: Request) {
       });
     }
 
-    const tidakTerlihat = matchingTemplates
-      .filter((t) => !seenVolumeNames.has(t.volume.name.toLowerCase()))
-      .map((t) => ({
-        templateId: t.id,
-        templateName: t.name,
-        volumeName: t.volume.name,
-        catalog: t.volume.catalog,
-        schema: t.volume.schema,
-        status: "tidak_terlihat" as const,
-      }));
-
     return NextResponse.json({
       catalog,
       schema,
       volumes: volumeItems,
-      tidakTerlihat,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan";

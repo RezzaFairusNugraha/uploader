@@ -128,6 +128,7 @@ export const TemplateDefinitionSchema = z
     delimiter: TemplateDelimiterSchema,
     status: TemplateStatusSchema,
     volume: VolumeConfigSchema,
+    schemaCreatedByApp: z.boolean().default(false),
     volumeCreatedByApp: z.boolean().default(false),
     csvFolder: z.string().default("csv"),
     parquetFolder: z.string().default("parquet"),
@@ -160,7 +161,7 @@ export const TemplateDefinitionSchema = z
   });
 
 export interface ProvisionStepStatus {
-  step: "save_definition" | "create_volume" | "create_csv" | "create_parquet" | "activate";
+  step: "save_definition" | "create_schema" | "create_volume" | "create_csv" | "create_parquet" | "activate";
   name: string;
   status: "pending" | "running" | "success" | "error";
   message?: string;

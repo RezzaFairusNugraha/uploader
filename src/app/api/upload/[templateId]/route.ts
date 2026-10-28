@@ -260,7 +260,7 @@ export async function PUT(
       fileName
     );
     const catalog = template.volume?.catalog || settings.catalog;
-    const schema = template.volume?.schema || settings.schema;
+    const schema = template.volume?.schema || templateSlug;
     const volumeName = template.volume?.name || templateSlug;
 
     const destinationPath = buildVolumePath(

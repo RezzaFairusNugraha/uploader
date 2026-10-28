@@ -46,8 +46,20 @@ export interface VolumeContentsSummary {
 
 export interface DatabricksClient {
   listCatalogs: () => Promise<DatabricksResponse<{ catalogs: UnityCatalogCatalogInfo[] }>>;
+  getCatalog: (catalog: string) => Promise<DatabricksResponse<UnityCatalogCatalogInfo>>;
   listSchemas: (catalog: string) => Promise<DatabricksResponse<{ schemas: UnityCatalogSchemaInfo[] }>>;
   getSchema: (catalog: string, schema: string) => Promise<DatabricksResponse<UnityCatalogSchemaInfo>>;
+  createSchema: (
+    catalog: string,
+    schema: string,
+    templateId: string
+  ) => Promise<DatabricksResponse<UnityCatalogSchemaInfo>>;
+  deleteSchema: (fullName: string) => Promise<DatabricksResponse>;
+  listTables: (
+    catalog: string,
+    schema: string
+  ) => Promise<DatabricksResponse<{ tables?: unknown[] }>>;
+  isSchemaEmpty: (catalog: string, schema: string) => Promise<boolean>;
   getVolume: (catalog: string, schema: string, name: string) => Promise<DatabricksResponse<UnityCatalogVolumeInfo>>;
   listVolumes: (catalog: string, schema: string) => Promise<DatabricksResponse<{ volumes?: UnityCatalogVolumeInfo[] }>>;
   createVolume: (
@@ -179,6 +191,15 @@ export function createDatabricksClient(
       return { success: true, data: { catalogs: all } };
     },
 
+    async getCatalog(catalog: string): Promise<DatabricksResponse<UnityCatalogCatalogInfo>> {
+      return executeJson<UnityCatalogCatalogInfo>(
+        `/api/2.1/unity-catalog/catalogs/${encodeURIComponent(catalog)}`,
+        "GET",
+        undefined,
+        "getSchema"
+      );
+    },
+
     async listSchemas(catalog: string): Promise<DatabricksResponse<{ schemas: UnityCatalogSchemaInfo[] }>> {
       const all: UnityCatalogSchemaInfo[] = [];
       let pageToken: string | undefined = undefined;
@@ -214,6 +235,123 @@ export function createDatabricksClient(
         undefined,
         "getSchema"
       );
+    },
+
+    async createSchema(
+      catalog: string,
+      schema: string,
+      templateId: string
+    ): Promise<DatabricksResponse<UnityCatalogSchemaInfo>> {
+      const endpoint = "/api/2.1/unity-catalog/schemas";
+      const body = {
+        name: schema,
+        catalog_name: catalog,
+        comment: `Dibuat oleh Data Uploader (template ${templateId})`,
+      };
+      try {
+        const response = await fetch(`${normalizedBase}${endpoint}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (response.ok) {
+          const data = (await response.json().catch(() => ({}))) as UnityCatalogSchemaInfo;
+          return { success: true, status: response.status, data };
+        }
+
+        if (response.status === 409) {
+          return { success: true, status: 409, error: "Folder induk sudah ada" };
+        }
+
+        if (response.status === 403) {
+          return {
+            success: false,
+            status: 403,
+            error: "Akun koneksi belum punya izin membuat folder penyimpanan baru. Hubungi admin.",
+          };
+        }
+
+        return {
+          success: false,
+          status: response.status,
+          error: mapStatusToMessage(response.status, "createVolume"),
+        };
+      } catch {
+        return {
+          success: false,
+          error: "Host tidak terjangkau atau koneksi terputus",
+        };
+      }
+    },
+
+    async deleteSchema(fullName: string): Promise<DatabricksResponse> {
+      const url = `${normalizedBase}/api/2.1/unity-catalog/schemas/${encodeURIComponent(fullName)}`;
+      try {
+        const response = await fetch(url, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (
+          response.ok ||
+          response.status === 200 ||
+          response.status === 204 ||
+          response.status === 404
+        ) {
+          return { success: true, status: response.status };
+        }
+
+        if (response.status === 403) {
+          return {
+            success: false,
+            status: 403,
+            error: "Izin kurang: token memerlukan izin untuk menghapus skema",
+          };
+        }
+
+        return {
+          success: false,
+          status: response.status,
+          error: mapStatusToMessage(response.status, "getSchema"),
+        };
+      } catch {
+        return {
+          success: false,
+          error: "Host tidak terjangkau atau koneksi terputus",
+        };
+      }
+    },
+
+    async listTables(
+      catalog: string,
+      schema: string
+    ): Promise<DatabricksResponse<{ tables?: unknown[] }>> {
+      return executeJson<{ tables?: unknown[] }>(
+        `/api/2.1/unity-catalog/tables?catalog_name=${encodeURIComponent(catalog)}&schema_name=${encodeURIComponent(schema)}`,
+        "GET",
+        undefined,
+        "getSchema"
+      );
+    },
+
+    async isSchemaEmpty(catalog: string, schema: string): Promise<boolean> {
+      const volRes = await this.listVolumes(catalog, schema);
+      if (volRes.success && volRes.data?.volumes && volRes.data.volumes.length > 0) {
+        return false;
+      }
+      const tblRes = await this.listTables(catalog, schema);
+      if (tblRes.success && tblRes.data?.tables && tblRes.data.tables.length > 0) {
+        return false;
+      }
+      return true;
     },
 
     async getVolume(
@@ -661,10 +799,10 @@ export async function runConnectionTest(
   const client = createDatabricksClient(settings.workspaceUrl, settings.token);
   const steps: TestStepResult[] = [];
 
-  const schemaCheck = await client.getSchema(settings.catalog, settings.schema);
+  const catalogCheck = await client.getCatalog(settings.catalog);
 
-  if (!schemaCheck.success) {
-    if (schemaCheck.error?.includes("Host tidak terjangkau")) {
+  if (!catalogCheck.success) {
+    if (catalogCheck.error?.includes("Host tidak terjangkau")) {
       steps.push({
         name: "Host dapat dijangkau dan token valid",
         success: false,
@@ -672,13 +810,13 @@ export async function runConnectionTest(
         fix: "Pastikan URL workspace benar dan perangkat terhubung ke internet.",
       });
       steps.push({
-        name: "Katalog dan skema ditemukan",
+        name: "Katalog ditemukan",
         success: false,
         message: "Pemeriksaan dilewati",
         fix: "Selesaikan kendala koneksi host terlebih dahulu.",
       });
       steps.push({
-        name: "Daftar volume dapat diakses",
+        name: "Daftar skema dapat diakses",
         success: false,
         message: "Pemeriksaan dilewati",
         fix: "Selesaikan kendala koneksi host terlebih dahulu.",
@@ -691,21 +829,21 @@ export async function runConnectionTest(
       };
     }
 
-    if (schemaCheck.status === 401) {
+    if (catalogCheck.status === 401) {
       steps.push({
         name: "Host dapat dijangkau dan token valid",
         success: false,
-        message: schemaCheck.error,
+        message: catalogCheck.error,
         fix: "Periksa kembali Personal Access Token pada akun Databricks Anda dan simpan token baru.",
       });
       steps.push({
-        name: "Katalog dan skema ditemukan",
+        name: "Katalog ditemukan",
         success: false,
         message: "Pemeriksaan dilewati",
         fix: "Perbaiki token terlebih dahulu.",
       });
       steps.push({
-        name: "Daftar volume dapat diakses",
+        name: "Daftar skema dapat diakses",
         success: false,
         message: "Pemeriksaan dilewati",
         fix: "Perbaiki token terlebih dahulu.",
@@ -724,20 +862,20 @@ export async function runConnectionTest(
     });
 
     steps.push({
-      name: "Katalog dan skema ditemukan",
+      name: "Katalog ditemukan",
       success: false,
-      message: schemaCheck.error || "Skema tidak ditemukan",
+      message: catalogCheck.error || "Katalog tidak ditemukan",
       fix:
-        schemaCheck.status === 403
-          ? `Berikan izin USE CATALOG pada '${settings.catalog}' dan USE SCHEMA pada '${settings.schema}'.`
-          : `Pastikan katalog '${settings.catalog}' dan skema '${settings.schema}' ada di Unity Catalog.`,
+        catalogCheck.status === 403
+          ? `Berikan izin USE CATALOG pada '${settings.catalog}'.`
+          : `Pastikan katalog '${settings.catalog}' ada di Unity Catalog.`,
     });
 
     steps.push({
-      name: "Daftar volume dapat diakses",
+      name: "Daftar skema dapat diakses",
       success: false,
       message: "Pemeriksaan dilewati",
-      fix: "Pastikan skema ditemukan dan izin baca skema diberikan.",
+      fix: "Pastikan katalog ditemukan dan izin akses katalog diberikan.",
     });
 
     return {
@@ -752,23 +890,23 @@ export async function runConnectionTest(
     success: true,
   });
   steps.push({
-    name: "Katalog dan skema ditemukan",
+    name: "Katalog ditemukan",
     success: true,
   });
 
-  const listCheck = await client.listVolumes(settings.catalog, settings.schema);
+  const listCheck = await client.listSchemas(settings.catalog);
   if (listCheck.success) {
     steps.push({
-      name: "Daftar volume dapat diakses",
+      name: "Daftar skema dapat diakses",
       success: true,
-      message: "Izin CREATE VOLUME baru terbukti saat template pertama dibuat.",
+      message: "Izin membuat folder baru baru terbukti saat template pertama dibuat.",
     });
   } else {
     steps.push({
-      name: "Daftar volume dapat diakses",
+      name: "Daftar skema dapat diakses",
       success: false,
-      message: listCheck.error || "Gagal membaca daftar volume",
-      fix: `Berikan izin USE SCHEMA pada skema '${settings.schema}' di Databricks.`,
+      message: listCheck.error || "Gagal membaca daftar skema",
+      fix: `Berikan izin USE CATALOG pada katalog '${settings.catalog}' di Databricks.`,
     });
   }
 

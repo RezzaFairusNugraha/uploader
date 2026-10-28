@@ -104,6 +104,8 @@ export default function TemplatePage() {
     lastUploadAt: string | null;
     uploadsLast7Days: number;
     volumeOwnedByApp: boolean;
+    toRemove?: string[];
+    toKeep?: string[];
   } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -863,17 +865,28 @@ export default function TemplatePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-2">
+                <div className="text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
                   <div className="font-semibold text-zinc-900">Yang perlu Anda ketahui:</div>
-                  <ul className="list-disc list-inside space-y-1 text-zinc-600">
-                    <li>Template ini akan dihapus dari aplikasi.</li>
-                    <li>
-                      <span className="font-medium text-zinc-800">
-                        Folder penyimpanan di Databricks tidak akan dihapus
-                      </span>{" "}
-                      dan semua berkas di dalamnya tetap aman tersimpan.
-                    </li>
-                  </ul>
+                  {deletePreview?.toRemove && deletePreview.toRemove.length > 0 && (
+                    <div>
+                      <div className="font-medium text-rose-700">Akan dihapus:</div>
+                      <ul className="list-disc list-inside space-y-0.5 text-zinc-600 mt-1">
+                        {deletePreview.toRemove.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {deletePreview?.toKeep && deletePreview.toKeep.length > 0 && (
+                    <div>
+                      <div className="font-medium text-emerald-700">Akan dipertahankan:</div>
+                      <ul className="list-disc list-inside space-y-0.5 text-zinc-600 mt-1">
+                        {deletePreview.toKeep.map((item, idx) => (
+                          <li key={idx}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {deletePreview?.lastUploadAt && (
                     <div className="text-xs text-zinc-500 pt-1">
                       {formatTemplateLastUpload(deletePreview.lastUploadAt)}

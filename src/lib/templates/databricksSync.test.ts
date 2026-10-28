@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach } from "bun:test";
+import { GET as discoverRoute } from "@/app/api/databricks/discover/route";
 import { inspectVolume } from "@/lib/databricks/inspect";
 import type { DatabricksClient, DirectoryEntry } from "@/lib/databricks";
+import { FakeInMemorySettingsStore, setSettingsStore } from "@/lib/settings";
 import {
   FakeInMemoryTemplateRepository,
   setTemplateRepository,
@@ -22,11 +24,26 @@ function createMockDatabricksClient(options: {
     async listCatalogs() {
       return { success: true, data: { catalogs: [{ name: "main" }] } };
     },
+    async getCatalog() {
+      return { success: true, data: { name: "main" } };
+    },
     async listSchemas() {
-      return { success: true, data: { schemas: [{ name: "default" }] } };
+      return { success: true, data: { schemas: [{ name: "default", catalog_name: "main" }] } };
     },
     async getSchema() {
       return { success: true, data: { name: "default", catalog_name: "main" } };
+    },
+    async createSchema(catalog, schema) {
+      return { success: true, data: { name: schema, catalog_name: catalog } };
+    },
+    async deleteSchema() {
+      return { success: true };
+    },
+    async listTables() {
+      return { success: true, data: { tables: [] } };
+    },
+    async isSchemaEmpty() {
+      return true;
     },
     async getVolume() {
       return {
@@ -408,6 +425,75 @@ describe("Part B: Databricks Volume Inspection & Lenient Inference", () => {
       expect(nilaiCol.rule.min).toBeUndefined();
       expect(nilaiCol.rule.max).toBeUndefined();
       expect(nilaiCol.rule.allowedText).toContain("NIHIL");
+    }
+  });
+
+  it("discovery handles listing filtered schemas and processing one schema per request", async () => {
+    const originalFetch = globalThis.fetch;
+    const dummyKey = Buffer.from("01234567890123456789012345678901", "utf8");
+    const store = new FakeInMemorySettingsStore(dummyKey);
+    setSettingsStore(store);
+    await store.save({
+      workspaceUrl: "https://dbc-test.cloud.databricks.com",
+      token: "token",
+      catalog: "main",
+      maxFileSizeMb: 100,
+    });
+
+    try {
+      globalThis.fetch = (async (url) => {
+        const str = String(url);
+        if (str.includes("/unity-catalog/schemas?catalog_name=main")) {
+          return new Response(
+            JSON.stringify({
+              schemas: [
+                { name: "information_schema", catalog_name: "main" },
+                { name: "default", catalog_name: "main" },
+                { name: "_internal", catalog_name: "main" },
+                { name: ".hidden", catalog_name: "main" },
+                { name: "sales_q1", catalog_name: "main" },
+                { name: "marketing_q2", catalog_name: "main" },
+              ],
+            }),
+            { status: 200 }
+          );
+        }
+        if (str.includes("/unity-catalog/volumes?catalog_name=main&schema_name=sales_q1")) {
+          return new Response(
+            JSON.stringify({
+              volumes: [
+                {
+                  name: "file_storage",
+                  catalog_name: "main",
+                  schema_name: "sales_q1",
+                  volume_type: "MANAGED",
+                },
+              ],
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const listSchemasReq = new Request("http://localhost/api/databricks/discover?catalog=main");
+      const listSchemasRes = await discoverRoute(listSchemasReq);
+      const listSchemasBody = await listSchemasRes.json();
+      expect(listSchemasRes.status).toBe(200);
+      expect(listSchemasBody.schemas).toEqual(["sales_q1", "marketing_q2"]);
+
+      const oneSchemaReq = new Request(
+        "http://localhost/api/databricks/discover?catalog=main&schema=sales_q1"
+      );
+      const oneSchemaRes = await discoverRoute(oneSchemaReq);
+      const oneSchemaBody = await oneSchemaRes.json();
+      expect(oneSchemaRes.status).toBe(200);
+      expect(oneSchemaBody.schema).toBe("sales_q1");
+      expect(oneSchemaBody.volumes.length).toBe(1);
+      expect(oneSchemaBody.volumes[0].name).toBe("file_storage");
+      expect(oneSchemaBody.volumes[0].status).toBe("belum_template");
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });

@@ -142,6 +142,22 @@ describe("Databricks Client & Connection Test", () => {
       expect(resNetwork.success).toBe(false);
       expect(resNetwork.error).toContain("Host tidak terjangkau");
     });
+
+    it("deleteSchema: tidak pernah mengirim parameter force", async () => {
+      let calledUrl = "";
+      let calledBody: unknown = undefined;
+      globalThis.fetch = (async (url, init) => {
+        calledUrl = String(url);
+        calledBody = init?.body;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const res = await client.deleteSchema("main.my_schema");
+      expect(res.success).toBe(true);
+      expect(calledUrl).toContain("/api/2.1/unity-catalog/schemas/main.my_schema");
+      expect(calledUrl).not.toContain("force");
+      expect(calledBody).toBeUndefined();
+    });
   });
 
   describe("Uji Koneksi Read-Only (runConnectionTest)", () => {
@@ -149,20 +165,19 @@ describe("Databricks Client & Connection Test", () => {
       workspaceUrl: "https://dbc-test.cloud.databricks.com",
       token: "valid-secret-token",
       catalog: "main",
-      schema: "sales",
       maxFileSizeMb: 100,
     };
 
-    it("berhasil melewati semua tahap dan menyertakan catatan izin CREATE VOLUME", async () => {
+    it("berhasil melewati semua tahap dan menyertakan catatan izin membuat folder baru", async () => {
       globalThis.fetch = (async (url) => {
         const str = String(url);
-        if (str.includes("/schemas/")) {
-          return new Response(JSON.stringify({ name: "sales" }), {
+        if (str.includes("/catalogs/main")) {
+          return new Response(JSON.stringify({ name: "main" }), {
             status: 200,
           });
         }
-        if (str.includes("/volumes?")) {
-          return new Response(JSON.stringify({ volumes: [] }), {
+        if (str.includes("/schemas?")) {
+          return new Response(JSON.stringify({ schemas: [] }), {
             status: 200,
           });
         }
@@ -176,7 +191,7 @@ describe("Databricks Client & Connection Test", () => {
       expect(result.steps[1].success).toBe(true);
       expect(result.steps[2].success).toBe(true);
       expect(result.steps[2].message).toBe(
-        "Izin CREATE VOLUME baru terbukti saat template pertama dibuat."
+        "Izin membuat folder baru baru terbukti saat template pertama dibuat."
       );
     });
 

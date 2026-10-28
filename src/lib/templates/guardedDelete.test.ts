@@ -212,22 +212,43 @@ describe("Guarded Permanent Delete Flow", () => {
     );
   });
 
-  it("app-created volume does not delete volume in Databricks and marks the template deleted", async () => {
-    let deleteVolumeCallCount = 0;
+  it("urutan hapus: menghapus volume buatan aplikasi, lalu menghapus schema jika kosong dan dibuat oleh aplikasi (tanpa force)", async () => {
+    const operations: string[] = [];
+    let deleteSchemaUrl = "";
 
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       const urlStr = url.toString();
-      if (init?.method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        deleteVolumeCallCount++;
+      const method = init?.method || "GET";
+
+      if (method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
+        operations.push("deleteVolume");
+        return new Response(null, { status: 200 });
+      }
+      if (method === "GET" && urlStr.includes("/unity-catalog/volumes?")) {
+        operations.push("listVolumes");
+        return new Response(JSON.stringify({ volumes: [] }), { status: 200 });
+      }
+      if (method === "GET" && urlStr.includes("/unity-catalog/tables?")) {
+        operations.push("listTables");
+        return new Response(JSON.stringify({ tables: [] }), { status: 200 });
+      }
+      if (method === "DELETE" && urlStr.includes("/unity-catalog/schemas/")) {
+        operations.push("deleteSchema");
+        deleteSchemaUrl = urlStr;
         return new Response(null, { status: 200 });
       }
       return new Response(JSON.stringify({}), { status: 200 });
     }) as typeof fetch;
 
-    await templateRepo.create(sampleArchivedTemplate);
+    const appCreatedTemplate: TemplateDefinition = {
+      ...sampleArchivedTemplate,
+      schemaCreatedByApp: true,
+      volumeCreatedByApp: true,
+    };
+    await templateRepo.create(appCreatedTemplate);
 
     const req = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
+      `http://localhost/api/templates/${appCreatedTemplate.id}/delete`,
       {
         method: "POST",
         headers: {
@@ -235,26 +256,86 @@ describe("Guarded Permanent Delete Flow", () => {
           cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
-          confirmName: sampleArchivedTemplate.name,
+          confirmName: appCreatedTemplate.name,
           deletedBy: "User Budi",
         }),
       }
     );
 
     const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
+      params: Promise.resolve({ id: appCreatedTemplate.id }),
     });
     expect(res.status).toBe(200);
-    expect(deleteVolumeCallCount).toBe(0);
+    expect(operations).toEqual([
+      "deleteVolume",
+      "listVolumes",
+      "listTables",
+      "deleteSchema",
+    ]);
+    expect(deleteSchemaUrl).not.toContain("force");
 
-    const updated = await templateRepo.get(sampleArchivedTemplate.id);
+    const updated = await templateRepo.get(appCreatedTemplate.id);
     expect(updated?.status).toBe("dihapus");
     expect(updated?.deletedAt).toBeDefined();
+  });
 
-    const versions = await versionRepo.listByTemplate(sampleArchivedTemplate.id);
-    expect(versions.length).toBe(1);
-    expect(versions[0].changeSummary).toContain(
-      "Folder penyimpanan di Databricks tetap dipertahankan"
+  it("mempertahankan schema ketika masih berisi objek lain dan menampilkan pesan yang sesuai", async () => {
+    let deleteSchemaCalled = false;
+
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const urlStr = url.toString();
+      const method = init?.method || "GET";
+
+      if (method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
+        return new Response(null, { status: 200 });
+      }
+      if (method === "GET" && urlStr.includes("/unity-catalog/volumes?")) {
+        return new Response(JSON.stringify({ volumes: [] }), { status: 200 });
+      }
+      if (method === "GET" && urlStr.includes("/unity-catalog/tables?")) {
+        return new Response(
+          JSON.stringify({ tables: [{ name: "existing_table" }] }),
+          { status: 200 }
+        );
+      }
+      if (method === "DELETE" && urlStr.includes("/unity-catalog/schemas/")) {
+        deleteSchemaCalled = true;
+        return new Response(null, { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch;
+
+    const appCreatedTemplate: TemplateDefinition = {
+      ...sampleArchivedTemplate,
+      id: crypto.randomUUID(),
+      schemaCreatedByApp: true,
+      volumeCreatedByApp: true,
+    };
+    await templateRepo.create(appCreatedTemplate);
+
+    const req = new Request(
+      `http://localhost/api/templates/${appCreatedTemplate.id}/delete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `admin_session=${validToken}`,
+        },
+        body: JSON.stringify({
+          confirmName: appCreatedTemplate.name,
+          deletedBy: "User Budi",
+        }),
+      }
+    );
+
+    const res = await deleteRoute(req, {
+      params: Promise.resolve({ id: appCreatedTemplate.id }),
+    });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(deleteSchemaCalled).toBe(false);
+    expect(body.notice).toBe(
+      "Folder induk tidak dihapus karena masih berisi objek lain."
     );
   });
 

@@ -63,6 +63,9 @@ export async function GET(
     capped: false,
   };
 
+  const toRemove: string[] = ["Definisi template"];
+  const toKeep: string[] = [];
+
   try {
     const conn = await getConnectionState();
     if (conn.ready && template.volume?.name) {
@@ -79,6 +82,43 @@ export async function GET(
         if (volRes.data) {
           summary = volRes.data;
         }
+
+        if (template.volumeCreatedByApp) {
+          toRemove.push(`Folder penyimpanan '${template.volume.name}'`);
+        } else {
+          toKeep.push(`Folder penyimpanan '${template.volume.name}' (tidak dibuat oleh aplikasi)`);
+        }
+
+        if (template.schemaCreatedByApp && template.volume.catalog && template.volume.schema) {
+          const vols = await client.listVolumes(template.volume.catalog, template.volume.schema);
+          const otherVolumes = (vols.data?.volumes || []).filter(
+            (v) => v.name !== template.volume?.name
+          );
+          const tables = await client.listTables(template.volume.catalog, template.volume.schema);
+          const tableCount = tables.data?.tables?.length || 0;
+          if (otherVolumes.length > 0 || tableCount > 0) {
+            toKeep.push(`Folder induk '${template.volume.schema}' (masih berisi objek lain)`);
+          } else {
+            toRemove.push(`Folder induk '${template.volume.schema}'`);
+          }
+        } else if (template.volume.schema) {
+          toKeep.push(`Folder induk '${template.volume.schema}' (tidak dibuat oleh aplikasi)`);
+        }
+      }
+    } else {
+      if (template.volume?.name) {
+        if (template.volumeCreatedByApp) {
+          toRemove.push(`Folder penyimpanan '${template.volume.name}'`);
+        } else {
+          toKeep.push(`Folder penyimpanan '${template.volume.name}' (tidak dibuat oleh aplikasi)`);
+        }
+      }
+      if (template.volume?.schema) {
+        if (template.schemaCreatedByApp) {
+          toRemove.push(`Folder induk '${template.volume.schema}' (jika kosong)`);
+        } else {
+          toKeep.push(`Folder induk '${template.volume.schema}' (tidak dibuat oleh aplikasi)`);
+        }
       }
     }
   } catch {
@@ -92,5 +132,8 @@ export async function GET(
     lastUploadAt,
     uploadsLast7Days,
     volumeOwnedByApp: template.volumeCreatedByApp ?? false,
+    schemaOwnedByApp: template.schemaCreatedByApp ?? false,
+    toRemove,
+    toKeep,
   });
 }

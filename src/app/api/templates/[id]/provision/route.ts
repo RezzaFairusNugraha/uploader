@@ -9,7 +9,8 @@ export async function POST(
     const { id } = await context.params;
     const body = await request.json().catch(() => ({}));
     const result = await provisionTemplate(id, {
-      reuseExistingVolume: body?.reuseExistingVolume !== undefined ? Boolean(body.reuseExistingVolume) : true,
+      adoptExisting: Boolean(body?.adoptExisting || body?.reuseExistingVolume),
+      reuseExistingVolume: Boolean(body?.reuseExistingVolume || body?.adoptExisting),
       catalog: body?.catalog,
       schema: body?.schema,
       volumeName: body?.volumeName,

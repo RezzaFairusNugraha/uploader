@@ -28,7 +28,8 @@ export interface DecryptedSettings {
   workspaceUrl: string;
   token: string;
   catalog: string;
-  schema: string;
+  schema?: string | null;
+  defaultVolumeName?: string;
   volume?: string;
   subfolderCsv?: string;
   subfolderParquet?: string;
@@ -43,7 +44,8 @@ export interface MaskedSettings {
   hasToken: boolean;
   tokenMasked: string;
   catalog: string;
-  schema: string;
+  schema?: string | null;
+  defaultVolumeName?: string;
   volume?: string;
   subfolderCsv?: string;
   subfolderParquet?: string;
@@ -168,7 +170,9 @@ export const settingsFormSchema = z.object({
     .string()
     .trim()
     .optional()
+    .nullable()
     .refine((val) => !val || isValidPathSegment(val), "Skema tidak boleh mengandung '/', '\\', atau '..'"),
+  defaultVolumeName: z.string().trim().optional(),
   volume: z.string().trim().optional(),
   subfolderCsv: z.string().trim().optional(),
   subfolderParquet: z.string().trim().optional(),
@@ -183,7 +187,7 @@ export const settingsFormSchema = z.object({
 
 export type SettingsFormData = z.infer<typeof settingsFormSchema>;
 
-export type MissingConnectionField = "alamat" | "token" | "catalog" | "schema";
+export type MissingConnectionField = "alamat" | "token" | "catalog";
 
 export interface ConnectionState {
   ready: boolean;
@@ -206,7 +210,7 @@ export async function getConnectionState(): Promise<ConnectionState> {
   if (!settings) {
     return {
       ready: false,
-      missing: ["alamat", "token", "catalog", "schema"],
+      missing: ["alamat", "token", "catalog"],
       error: null,
     };
   }
@@ -220,9 +224,6 @@ export async function getConnectionState(): Promise<ConnectionState> {
   }
   if (!settings.catalog || !settings.catalog.trim()) {
     missing.push("catalog");
-  }
-  if (!settings.schema || !settings.schema.trim()) {
-    missing.push("schema");
   }
 
   return {
@@ -263,6 +264,7 @@ export class DrizzleSettingsStore implements SettingsStore {
         token,
         catalog: row.catalog,
         schema: row.schema,
+        defaultVolumeName: row.defaultVolumeName ?? "file_storage",
         maxFileSizeMb: row.maxUploadMb,
         adminPasswordHash: row.adminPasswordHash,
         lastTestResult: this.lastTestResultMemory,
@@ -285,6 +287,7 @@ export class DrizzleSettingsStore implements SettingsStore {
       tokenMasked: maskToken(decrypted.token),
       catalog: decrypted.catalog,
       schema: decrypted.schema,
+      defaultVolumeName: decrypted.defaultVolumeName,
       maxFileSizeMb: decrypted.maxFileSizeMb,
       hasAdminPassword: Boolean(decrypted.adminPasswordHash),
       lastTestResult: decrypted.lastTestResult,
@@ -299,7 +302,11 @@ export class DrizzleSettingsStore implements SettingsStore {
     const normalizedWorkspaceUrl = workspaceUrlRaw ? normalizeUrl(workspaceUrlRaw) : "";
 
     const catalog = input.catalog !== undefined ? input.catalog.trim() : existing?.catalog || "";
-    const schema = input.schema !== undefined ? input.schema.trim() : existing?.schema || "";
+    const schema = input.schema !== undefined ? (input.schema ? input.schema.trim() : null) : existing?.schema ?? null;
+    const defaultVolumeName =
+      input.defaultVolumeName !== undefined
+        ? input.defaultVolumeName.trim()
+        : existing?.defaultVolumeName ?? "file_storage";
     const maxUploadMb = input.maxFileSizeMb !== undefined ? input.maxFileSizeMb : existing?.maxFileSizeMb || 100;
 
     let tokenToEncrypt = input.token !== undefined && input.token.trim() !== "" ? input.token.trim() : existing?.token || "";
@@ -322,6 +329,7 @@ export class DrizzleSettingsStore implements SettingsStore {
           tokenEncrypted: serializedToken,
           catalog,
           schema,
+          defaultVolumeName,
           maxUploadMb,
           adminPasswordHash: adminHash,
           updatedAt: new Date(),
@@ -333,6 +341,7 @@ export class DrizzleSettingsStore implements SettingsStore {
             tokenEncrypted: serializedToken,
             catalog,
             schema,
+            defaultVolumeName,
             maxUploadMb,
             adminPasswordHash: adminHash,
             updatedAt: new Date(),
@@ -341,12 +350,13 @@ export class DrizzleSettingsStore implements SettingsStore {
     );
 
     return {
-      configured: Boolean(normalizedWorkspaceUrl && tokenToEncrypt && catalog && schema),
+      configured: Boolean(normalizedWorkspaceUrl && tokenToEncrypt && catalog),
       workspaceUrl: normalizedWorkspaceUrl,
       hasToken: Boolean(tokenToEncrypt),
       tokenMasked: tokenToEncrypt ? maskToken(tokenToEncrypt) : "",
       catalog,
       schema,
+      defaultVolumeName,
       maxFileSizeMb: maxUploadMb,
       hasAdminPassword: Boolean(adminHash),
       lastTestResult: this.lastTestResultMemory,
@@ -363,7 +373,8 @@ export class FakeInMemorySettingsStore implements SettingsStore {
     workspaceUrl: string;
     tokenEncrypted: EncryptedData;
     catalog: string;
-    schema: string;
+    schema?: string | null;
+    defaultVolumeName?: string;
     maxUploadMb: number;
     lastTestResult?: ConnectionTestResult;
   } | null = null;
@@ -387,6 +398,7 @@ export class FakeInMemorySettingsStore implements SettingsStore {
       token,
       catalog: this.stored.catalog,
       schema: this.stored.schema,
+      defaultVolumeName: this.stored.defaultVolumeName ?? "file_storage",
       maxFileSizeMb: this.stored.maxUploadMb,
       lastTestResult: this.stored.lastTestResult,
     };
@@ -402,6 +414,7 @@ export class FakeInMemorySettingsStore implements SettingsStore {
       tokenMasked: maskToken(decrypted.token),
       catalog: decrypted.catalog,
       schema: decrypted.schema,
+      defaultVolumeName: decrypted.defaultVolumeName,
       maxFileSizeMb: decrypted.maxFileSizeMb,
       hasAdminPassword: Boolean(decrypted.adminPasswordHash),
       lastTestResult: decrypted.lastTestResult,
@@ -414,7 +427,11 @@ export class FakeInMemorySettingsStore implements SettingsStore {
     const normalizedWorkspaceUrl = workspaceUrlRaw ? normalizeUrl(workspaceUrlRaw) : "";
 
     const catalog = input.catalog !== undefined ? input.catalog.trim() : existing?.catalog || "";
-    const schema = input.schema !== undefined ? input.schema.trim() : existing?.schema || "";
+    const schema = input.schema !== undefined ? (input.schema ? input.schema.trim() : null) : existing?.schema ?? null;
+    const defaultVolumeName =
+      input.defaultVolumeName !== undefined
+        ? input.defaultVolumeName.trim()
+        : existing?.defaultVolumeName ?? "file_storage";
     const maxUploadMb = input.maxFileSizeMb !== undefined ? input.maxFileSizeMb : existing?.maxFileSizeMb || 100;
 
     let token = input.token !== undefined && input.token.trim() !== "" ? input.token.trim() : existing?.token || "";
@@ -428,6 +445,7 @@ export class FakeInMemorySettingsStore implements SettingsStore {
       tokenEncrypted,
       catalog,
       schema,
+      defaultVolumeName,
       maxUploadMb,
       lastTestResult: this.stored?.lastTestResult,
     };

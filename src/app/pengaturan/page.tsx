@@ -12,7 +12,7 @@ interface FormState {
   workspaceUrl: string;
   token: string;
   catalog: string;
-  schema: string;
+  defaultVolumeName: string;
   maxFileSizeMb: number;
 }
 
@@ -20,7 +20,7 @@ const initialFormState: FormState = {
   workspaceUrl: "",
   token: "",
   catalog: "",
-  schema: "",
+  defaultVolumeName: "file_storage",
   maxFileSizeMb: 100,
 };
 
@@ -67,7 +67,7 @@ export default function DatabricksConnectionPage() {
             workspaceUrl: data.settings.workspaceUrl || "",
             token: "",
             catalog: data.settings.catalog || "",
-            schema: data.settings.schema || "",
+            defaultVolumeName: data.settings.defaultVolumeName ?? "file_storage",
             maxFileSizeMb: data.settings.maxFileSizeMb || 100,
           });
           if (data.settings.lastTestResult) {
@@ -142,7 +142,7 @@ export default function DatabricksConnectionPage() {
       const payload: Record<string, unknown> = {
         workspaceUrl: formData.workspaceUrl,
         catalog: formData.catalog,
-        schema: formData.schema,
+        defaultVolumeName: formData.defaultVolumeName,
         maxFileSizeMb: formData.maxFileSizeMb,
       };
 
@@ -364,17 +364,17 @@ export default function DatabricksConnectionPage() {
             />
 
             <Field
-              id="schema"
-              label="Schema (Skema)"
-              name="schema"
-              value={formData.schema}
+              id="default-volume-name"
+              label="Nama volume di setiap folder template"
+              name="defaultVolumeName"
+              value={formData.defaultVolumeName}
               onChange={handleChange}
-              hint="Nama skema di dalam katalog"
-              required
+              placeholder="file_storage"
+              hint="Kosongkan untuk memakai nama template."
             />
           </div>
           <p className="text-sm text-zinc-500">
-            Pengaturan ini hanya berlaku untuk template baru.
+            Folder induk template dibuat otomatis sesuai nama template di Databricks.
           </p>
 
           <Field
@@ -406,7 +406,6 @@ export default function DatabricksConnectionPage() {
         </div>
       </form>
 
-      {/* Detail Teknis Status Kolom */}
       <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-xs">
         <button
           type="button"
@@ -442,16 +441,15 @@ export default function DatabricksConnectionPage() {
               </div>
             </div>
             <div className="p-3 bg-zinc-50 rounded-lg">
-              <div className="text-zinc-500 text-sm">Skema (Schema)</div>
+              <div className="text-zinc-500 text-sm">Skema lama (Schema)</div>
               <div className="font-semibold text-zinc-800 mt-1">
-                {Boolean(savedSettings?.schema) ? "terisi" : "kosong"}
+                {savedSettings?.schema || "tidak digunakan"}
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Hasil Uji Koneksi */}
       {testResult && (
         <div className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-zinc-900 border-b border-zinc-100 pb-2">

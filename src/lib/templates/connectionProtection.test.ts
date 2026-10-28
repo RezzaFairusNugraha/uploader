@@ -213,7 +213,7 @@ describe("Part C: Connection Protection Tests", () => {
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       const urlStr = url.toString();
       const method = init?.method || "GET";
-      if (urlStr.includes("/volumes/analytics_cat.sales_sch.template_a") && method === "GET") {
+      if (urlStr.includes("/volumes/analytics_cat.old_schema.template_a") && method === "GET") {
         return new Response("Not found", { status: 404 });
       }
       if (urlStr.endsWith("/volumes") && method === "POST") {
@@ -237,7 +237,7 @@ describe("Part C: Connection Protection Tests", () => {
       expect(result.template.needsCheck).toBe(false);
       expect(result.template.workspaceHost).toBe("dbc-new.cloud.databricks.com");
       expect(result.template.volume.catalog).toBe("analytics_cat");
-      expect(result.template.volume.schema).toBe("sales_sch");
+      expect(result.template.volume.schema).toBe("old_schema");
       expect(result.template.volume.name).toBe("template_a");
 
       const reloaded = await fakeRepo.get(created.id);
@@ -245,7 +245,7 @@ describe("Part C: Connection Protection Tests", () => {
       expect(reloaded?.needsCheck).toBe(false);
       expect(reloaded?.workspaceHost).toBe("dbc-new.cloud.databricks.com");
       expect(reloaded?.volume.catalog).toBe("analytics_cat");
-      expect(reloaded?.volume.schema).toBe("sales_sch");
+      expect(reloaded?.volume.schema).toBe("old_schema");
     } finally {
       globalThis.fetch = origFetch;
     }

@@ -7,6 +7,8 @@ import {
   VolumeConfigSchema,
   templateRepository,
   slugify,
+  validateSchemaName,
+  validateVolumeName,
   type TemplateDefinition,
 } from "@/lib/templates";
 
@@ -43,6 +45,17 @@ export async function POST(request: Request) {
 
     const { name, description, delimiter, volume, columns, csvFolder, parquetFolder } = parsed.data;
     const slug = parsed.data.slug?.trim() || slugify(name);
+
+    const schemaCheck = validateSchemaName(volume.schema || slug);
+    if (!schemaCheck.valid) {
+      return NextResponse.json({ error: schemaCheck.error }, { status: 400 });
+    }
+
+    const volumeNameCheck = validateVolumeName(volume.name);
+    if (!volumeNameCheck.valid) {
+      return NextResponse.json({ error: volumeNameCheck.error }, { status: 400 });
+    }
+
     const now = new Date().toISOString();
 
     const newTemplate: TemplateDefinition = {
@@ -53,6 +66,7 @@ export async function POST(request: Request) {
       delimiter,
       status: "membuat",
       volume,
+      schemaCreatedByApp: false,
       volumeCreatedByApp: false,
       csvFolder,
       parquetFolder,

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyAdminToken } from "@/lib/adminAuth";
+import { createDatabricksClient } from "@/lib/databricks";
+import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
 import { templateVersionRepository } from "@/lib/templates/versions";
 
@@ -69,13 +71,46 @@ export async function POST(
     );
   }
 
-  const finalDeletedBy = deletedBy && deletedBy.trim()
-    ? `${deletedBy.trim()} (Admin)`
-    : "Admin";
+  const finalDeletedBy =
+    deletedBy && deletedBy.trim() ? `${deletedBy.trim()} (Admin)` : "Admin";
 
-  const changeSummary = template.volumeCreatedByApp
-    ? "Template dihapus. Folder penyimpanan di Databricks tetap dipertahankan."
-    : "Template dihapus. Folder penyimpanan tidak ikut dihapus karena tidak dibuat oleh aplikasi.";
+  let schemaNotice: string | undefined;
+
+  try {
+    const conn = await getConnectionState();
+    if (conn.ready && template.volume?.catalog && template.volume?.schema) {
+      const settings = await readDecryptedSettings();
+      if (settings?.workspaceUrl && settings?.token) {
+        const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+
+        if (template.volumeCreatedByApp && template.volume.name) {
+          const volumeFullName = `${template.volume.catalog}.${template.volume.schema}.${template.volume.name}`;
+          await client.deleteVolume(volumeFullName);
+        }
+
+        if (template.schemaCreatedByApp) {
+          const isEmpty = await client.isSchemaEmpty(
+            template.volume.catalog,
+            template.volume.schema
+          );
+          if (isEmpty) {
+            const schemaFullName = `${template.volume.catalog}.${template.volume.schema}`;
+            await client.deleteSchema(schemaFullName);
+          } else {
+            schemaNotice = "Folder induk tidak dihapus karena masih berisi objek lain.";
+          }
+        }
+      }
+    }
+  } catch {
+  }
+
+  let changeSummary = `Template ${template.name} dihapus permanen.`;
+  if (schemaNotice) {
+    changeSummary += ` ${schemaNotice}`;
+  } else if (!template.volumeCreatedByApp) {
+    changeSummary += " Folder penyimpanan tidak ikut dihapus karena tidak dibuat oleh aplikasi.";
+  }
 
   const deleted = await templateRepository.markDeleted(id, finalDeletedBy);
   await templateVersionRepository.add({
@@ -89,6 +124,9 @@ export async function POST(
 
   return NextResponse.json({
     success: true,
-    message: `Template ${template.name} dihapus permanen`,
+    message: schemaNotice
+      ? `Template ${template.name} dihapus permanen. ${schemaNotice}`
+      : `Template ${template.name} dihapus permanen`,
+    notice: schemaNotice,
   });
 }

@@ -59,7 +59,6 @@ export async function POST(request: Request) {
 
     const client = createDatabricksClient(settings.workspaceUrl, settings.token);
     const currentCatalog = settings.catalog || "main";
-    const currentSchema = settings.schema || "default";
 
     if (templateId) {
       const template = await templateRepository.get(templateId);
@@ -71,7 +70,7 @@ export async function POST(request: Request) {
       }
 
       const cat = template.volume?.catalog || currentCatalog;
-      const sch = template.volume?.schema || currentSchema;
+      const sch = template.volume?.schema || template.slug;
       const volName = template.volume?.name || template.slug;
 
       const volRes = await client.getVolume(cat, sch, volName);
@@ -121,7 +120,7 @@ export async function POST(request: Request) {
 
     const target = flaggedTemplates[0];
     const cat = target.volume?.catalog || currentCatalog;
-    const sch = target.volume?.schema || currentSchema;
+    const sch = target.volume?.schema || target.slug;
     const volName = target.volume?.name || target.slug;
 
     const volRes = await client.getVolume(cat, sch, volName);

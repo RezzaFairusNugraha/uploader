@@ -245,42 +245,36 @@ export default function NewTemplatePage() {
   };
 
   const loadDiscovery = async () => {
-    if (!selectedCatalog || !selectedSchema) return;
+    if (!selectedCatalog) return;
     setIsLoadingDiscovery(true);
     setDiscoveryError(null);
     setDiscoveryProgress(null);
+    setDiscoveredVolumes([]);
+    setTidakTerlihatList([]);
+    setSelectedSyncVolumes(new Set());
     try {
       const res = await fetch(
-        `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}&schema=${encodeURIComponent(selectedSchema)}`
+        `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}`
       );
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Gagal memuat folder penyimpanan Databricks");
       }
-      const rawVolumes: DiscoveredVolumeItem[] = data.volumes || [];
-      setDiscoveredVolumes(rawVolumes);
-      setTidakTerlihatList(data.tidakTerlihat || []);
-      setSelectedSyncVolumes(new Set());
+      const schemaList: string[] = data.schemas || [];
+      const aggregated: DiscoveredVolumeItem[] = [];
 
-      const toInspect = rawVolumes.filter((v) => v.status !== "sudah_template");
-      if (toInspect.length > 0) {
+      if (schemaList.length > 0) {
         await syncVolumesLoop(
-          toInspect,
-          async (vol) => {
-            const detailRes = await fetch(
-              `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}&schema=${encodeURIComponent(selectedSchema)}&volume=${encodeURIComponent(vol.name)}`
+          schemaList,
+          async (sch) => {
+            const schRes = await fetch(
+              `/api/databricks/discover?catalog=${encodeURIComponent(selectedCatalog)}&schema=${encodeURIComponent(sch)}`
             );
-            if (detailRes.ok) {
-              const detailData = await detailRes.json();
-              if (detailData.volume) {
-                setDiscoveredVolumes((prev) =>
-                  prev.map((item) =>
-                    item.name.toLowerCase() === vol.name.toLowerCase()
-                      ? { ...item, ...detailData.volume }
-                      : item
-                  )
-                );
-              }
+            if (schRes.ok) {
+              const schData = await schRes.json();
+              const vols: DiscoveredVolumeItem[] = schData.volumes || [];
+              aggregated.push(...vols);
+              setDiscoveredVolumes([...aggregated]);
             }
           },
           (progress) => {
@@ -420,10 +414,10 @@ export default function NewTemplatePage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === "sync" && selectedCatalog && selectedSchema) {
+    if (activeTab === "sync" && selectedCatalog) {
       loadDiscovery();
     }
-  }, [activeTab, selectedCatalog, selectedSchema]);
+  }, [activeTab, selectedCatalog]);
 
   const handleNameChange = (val: string) => {
     setName(val);
@@ -516,18 +510,19 @@ export default function NewTemplatePage() {
     setVolumeExistsError(null);
 
     setProvisionSteps([
-      { step: "save_definition", name: "Simpan definisi template", status: "success" },
-      { step: "create_volume", name: "Buat volume di Unity Catalog", status: "running" },
-      { step: "create_csv", name: "Buat folder csv/", status: "pending" },
-      { step: "create_parquet", name: "Buat folder parquet/", status: "pending" },
-      { step: "activate", name: "Aktifkan template", status: "pending" },
+      { step: "save_definition", name: "Menyimpan template", status: "success" },
+      { step: "create_schema", name: "Membuat folder induk", status: "running" },
+      { step: "create_volume", name: "Membuat folder penyimpanan", status: "pending" },
+      { step: "create_csv", name: "Menyiapkan folder CSV", status: "pending" },
+      { step: "create_parquet", name: "Menyiapkan folder Parquet", status: "pending" },
+      { step: "activate", name: "Siap dipakai", status: "pending" },
     ]);
 
     try {
       const res = await fetch(`/api/templates/${templateId}/provision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reuseExistingVolume }),
+        body: JSON.stringify({ reuseExistingVolume, adoptExisting: reuseExistingVolume }),
       });
 
       const data = await res.json();
@@ -536,9 +531,9 @@ export default function NewTemplatePage() {
       }
 
       if (!res.ok || !data.success) {
-        if (data.volumeExists) {
+        if (data.volumeExists || data.schemaExists) {
           setVolumeExistsError({
-            message: data.error || "Volume sudah ada di Unity Catalog.",
+            message: data.error || "Folder penyimpanan sudah ada di Databricks.",
             templateId,
           });
         }
@@ -607,7 +602,11 @@ export default function NewTemplatePage() {
     }
   };
 
-  const handleInspectVolume = async (volName: string) => {
+  const handleInspectVolume = async (volName: string, volSchema?: string) => {
+    const schToUse = volSchema || selectedSchema;
+    if (volSchema) {
+      setSelectedSchema(volSchema);
+    }
     setInspectingVolumeName(volName);
     try {
       const res = await fetch("/api/databricks/inspect", {
@@ -615,7 +614,7 @@ export default function NewTemplatePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           catalog: selectedCatalog,
-          schema: selectedSchema,
+          schema: schToUse,
           volume: volName,
         }),
       });
@@ -664,19 +663,22 @@ export default function NewTemplatePage() {
       let importedCount = 0;
       await syncVolumesLoop(
         volList,
-        async (volName) => {
+        async (volKey) => {
+          const item = discoveredVolumes.find(
+            (v) => `${v.schema}.${v.name}` === volKey || v.name === volKey
+          );
           const res = await fetch("/api/databricks/import-drafts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              catalog: selectedCatalog,
-              schema: selectedSchema,
-              volume: volName,
+              catalog: item?.catalog || selectedCatalog,
+              schema: item?.schema || selectedSchema,
+              volume: item?.name || volKey,
             }),
           });
           const data = await res.json();
           if (res.ok && data.success) {
-            importedCount += (data.imported || 0);
+            importedCount += data.imported || 0;
           }
           return data;
         },
@@ -767,9 +769,10 @@ export default function NewTemplatePage() {
         return;
       }
 
-      const activeCat = selectedCatalog || settings?.catalog || "";
-      const activeSch = selectedSchema || settings?.schema || "";
-      const volumeNameToUse = verifyingVolumeName || slug;
+      const activeCat = selectedCatalog || settings?.catalog || "main";
+      const activeSch = isVerifyingDraft ? selectedSchema || slug : slug;
+      const defaultVol = settings?.defaultVolumeName?.trim() || slug;
+      const volumeNameToUse = verifyingVolumeName || defaultVol;
 
       const createRes = await fetch("/api/templates", {
         method: "POST",
@@ -807,8 +810,9 @@ export default function NewTemplatePage() {
   };
 
   const catalogDisplay = selectedCatalog || settings?.catalog || "<katalog>";
-  const schemaDisplay = selectedSchema || settings?.schema || "<skema>";
-  const slugDisplay = verifyingVolumeName || slug || "<folder>";
+  const slugDisplay = slug || "<nama-folder>";
+  const defaultVolumeNameDisplay =
+    verifyingVolumeName || settings?.defaultVolumeName?.trim() || slug || "file_storage";
 
   const headerPreview = columns.map((c) => c.name.trim() || "<kolom>").join(delimiter);
 
@@ -827,23 +831,25 @@ export default function NewTemplatePage() {
 
   const isAllCandidatesSelected =
     candidateVolumes.length > 0 &&
-    candidateVolumes.every((v) => selectedSyncVolumes.has(v.name));
+    candidateVolumes.every((v) => selectedSyncVolumes.has(`${v.schema}.${v.name}`));
 
   const toggleSelectAll = () => {
     if (isAllCandidatesSelected) {
       setSelectedSyncVolumes(new Set());
     } else {
-      setSelectedSyncVolumes(new Set(candidateVolumes.map((v) => v.name)));
+      setSelectedSyncVolumes(
+        new Set(candidateVolumes.map((v) => `${v.schema}.${v.name}`))
+      );
     }
   };
 
-  const toggleVolumeSelect = (volName: string) => {
+  const toggleVolumeSelect = (volKey: string) => {
     setSelectedSyncVolumes((prev) => {
       const next = new Set(prev);
-      if (next.has(volName)) {
-        next.delete(volName);
+      if (next.has(volKey)) {
+        next.delete(volKey);
       } else {
-        next.add(volName);
+        next.add(volKey);
       }
       return next;
     });
@@ -904,63 +910,34 @@ export default function NewTemplatePage() {
             <h2 className="text-base font-semibold text-zinc-900 border-b border-zinc-100 pb-3">
               Lokasi di Databricks
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 mb-1">
-                  Katalog (Catalog)
-                </label>
-                {catalogs.length > 0 ? (
-                  <select
-                    value={selectedCatalog}
-                    onChange={(e) => {
-                      setSelectedCatalog(e.target.value);
-                      loadLocations(e.target.value);
-                    }}
-                    className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {catalogs.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={selectedCatalog}
-                    onChange={(e) => setSelectedCatalog(e.target.value)}
-                    placeholder="Nama katalog"
-                    className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900"
-                  />
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 mb-1">
-                  Skema (Schema)
-                </label>
-                {schemas.length > 0 ? (
-                  <select
-                    value={selectedSchema}
-                    onChange={(e) => setSelectedSchema(e.target.value)}
-                    className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {schemas.map((sch) => (
-                      <option key={sch} value={sch}>
-                        {sch}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={selectedSchema}
-                    onChange={(e) => setSelectedSchema(e.target.value)}
-                    placeholder="Nama skema"
-                    className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900"
-                  />
-                )}
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-1">
+                Katalog (Catalog)
+              </label>
+              {catalogs.length > 0 ? (
+                <select
+                  value={selectedCatalog}
+                  onChange={(e) => {
+                    setSelectedCatalog(e.target.value);
+                    loadLocations(e.target.value);
+                  }}
+                  className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                >
+                  {catalogs.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={selectedCatalog}
+                  onChange={(e) => setSelectedCatalog(e.target.value)}
+                  placeholder="Nama katalog"
+                  className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900"
+                />
+              )}
             </div>
           </div>
 
@@ -1029,7 +1006,7 @@ export default function NewTemplatePage() {
               </div>
             )}
 
-            {isLoadingDiscovery ? (
+            {isLoadingDiscovery && discoveredVolumes.length === 0 ? (
               <div className="py-12 space-y-3">
                 <div className="h-12 bg-zinc-100 rounded-xl animate-pulse" />
                 <div className="h-12 bg-zinc-100 rounded-xl animate-pulse" />
@@ -1048,70 +1025,64 @@ export default function NewTemplatePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {candidateVolumes.map((vol) => (
-                  <div
-                    key={vol.name}
-                    className="p-4 border border-zinc-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedSyncVolumes.has(vol.name)}
-                        onChange={() => toggleVolumeSelect(vol.name)}
-                        className="w-4 h-4 mt-1 rounded text-indigo-600 focus:ring-indigo-600"
-                      />
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-zinc-900 text-base">
-                            {vol.name}
-                          </span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200 font-medium">
-                            Belum jadi template
-                          </span>
-                        </div>
-                        <p className="text-sm text-zinc-500">
-                          {vol.csvFiles} file CSV · {vol.parquetFiles} file Parquet
-                        </p>
-                        {vol.unsupportedFormats.length > 0 && (
-                          <p className="text-xs text-zinc-400">
-                            Format lain:{" "}
-                            {vol.unsupportedFormats
-                              .map((f) => `${f.count} file ${f.ext}`)
-                              .join(", ")}{" "}
-                            (belum bisa dibaca)
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={inspectingVolumeName === vol.name}
-                      isLoading={inspectingVolumeName === vol.name}
-                      onClick={() => handleInspectVolume(vol.name)}
-                      className="whitespace-nowrap min-h-[44px]"
+                {candidateVolumes.map((vol) => {
+                  const volKey = `${vol.schema}.${vol.name}`;
+                  return (
+                    <div
+                      key={volKey}
+                      className="p-4 border border-zinc-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-zinc-300 transition-colors"
                     >
-                      Buat template
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedSyncVolumes.has(volKey)}
+                          onChange={() => toggleVolumeSelect(volKey)}
+                          className="w-4 h-4 mt-1 rounded text-indigo-600 focus:ring-indigo-600"
+                        />
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-zinc-900 text-base">
+                              {vol.schema} / {vol.name}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 border border-zinc-200 font-medium">
+                              Belum jadi template
+                            </span>
+                          </div>
+                          <p className="text-sm text-zinc-500">
+                            Folder induk: {vol.schema} · Volume: {vol.name}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={inspectingVolumeName === vol.name}
+                        isLoading={inspectingVolumeName === vol.name}
+                        onClick={() => handleInspectVolume(vol.name, vol.schema)}
+                        className="whitespace-nowrap min-h-[44px]"
+                      >
+                        Buat template
+                      </Button>
+                    </div>
+                  );
+                })}
 
                 {existingVolumes.map((vol) => (
                   <div
-                    key={vol.name}
+                    key={`${vol.schema}.${vol.name}`}
                     className="p-4 border border-zinc-200 bg-zinc-50/50 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-zinc-900 text-base">
-                          {vol.name}
+                          {vol.schema} / {vol.name}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
                           Sudah jadi template
                         </span>
                       </div>
                       <p className="text-sm text-zinc-500">
-                        {vol.csvFiles} file CSV · {vol.parquetFiles} file Parquet
+                        Folder induk: {vol.schema} · Volume: {vol.name}
                       </p>
                     </div>
                     <Link href="/template">
@@ -1129,8 +1100,8 @@ export default function NewTemplatePage() {
                     </summary>
                     <div className="pt-2 divide-y divide-zinc-200">
                       {otherFolderVolumes.map((vol) => (
-                        <div key={vol.name} className="py-2.5 flex items-center justify-between">
-                          <span className="text-sm text-zinc-700">{vol.name}</span>
+                        <div key={`${vol.schema}.${vol.name}`} className="py-2.5 flex items-center justify-between">
+                          <span className="text-sm text-zinc-700">{vol.schema} / {vol.name}</span>
                           <span className="text-xs text-zinc-400">Belum ada file</span>
                         </div>
                       ))}
@@ -1309,11 +1280,11 @@ export default function NewTemplatePage() {
             <div>
               <Field
                 id="template-slug"
-                label="Volume Template"
+                label="Nama folder"
                 hint={
                   isVerifyingDraft
                     ? "Terkunci sesuai folder penyimpanan di Databricks."
-                    : "Digunakan untuk penamaan folder volume di Unity Catalog (3-60 karakter, huruf kecil, angka, _)."
+                    : "Digunakan untuk penamaan folder penyimpanan (3-60 karakter, huruf kecil, angka, _)."
                 }
                 name="slug"
                 value={slug}
@@ -1323,22 +1294,29 @@ export default function NewTemplatePage() {
                 required
                 error={
                   slug && !isSlugValid && !isVerifyingDraft
-                    ? "Format Volume tidak valid"
+                    ? "Format nama folder tidak valid"
                     : undefined
                 }
               />
             </div>
 
-            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-sm text-zinc-600 font-mono space-y-1">
-              <div className="font-sans font-medium text-zinc-800 text-sm mb-1">
-                Pratinjau Lokasi Volume di Databricks:
+            <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 text-base text-zinc-700 space-y-2">
+              <div className="font-medium text-zinc-900">
+                Folder penyimpanan: <span className="font-mono font-semibold">{slugDisplay}</span> (dibuat otomatis)
               </div>
-              <div>
-                /Volumes/{catalogDisplay}/{schemaDisplay}/{slugDisplay}/{csvFolder ? `${csvFolder}/` : ""}
-              </div>
-              <div>
-                /Volumes/{catalogDisplay}/{schemaDisplay}/{slugDisplay}/{parquetFolder ? `${parquetFolder}/` : ""}
-              </div>
+              <details className="text-sm text-zinc-600">
+                <summary className="cursor-pointer text-indigo-600 hover:text-indigo-700 font-medium select-none">
+                  Detail teknis
+                </summary>
+                <div className="mt-2 font-mono text-xs text-zinc-600 space-y-1 pl-2 border-l-2 border-zinc-200">
+                  <div>
+                    /Volumes/{catalogDisplay}/{slugDisplay}/{defaultVolumeNameDisplay}/{csvFolder ? `${csvFolder}/` : ""}
+                  </div>
+                  <div>
+                    /Volumes/{catalogDisplay}/{slugDisplay}/{defaultVolumeNameDisplay}/{parquetFolder ? `${parquetFolder}/` : ""}
+                  </div>
+                </div>
+              </details>
             </div>
 
             <div>
@@ -1491,6 +1469,11 @@ export default function NewTemplatePage() {
                 </div>
               )}
 
+              <div className="mb-3 p-3 bg-indigo-50/60 border border-indigo-100 rounded-lg text-sm text-indigo-900">
+                <span className="font-semibold">Folder penyimpanan baru yang akan dibuat:</span>{" "}
+                <span className="font-mono">{slugDisplay}</span>
+              </div>
+
               <div className="text-sm font-semibold text-zinc-700 mb-1">
                 Pratinjau Baris Header CSV:
               </div>
@@ -1566,9 +1549,14 @@ export default function NewTemplatePage() {
                       <div className="text-zinc-500 mt-0.5">{step.message}</div>
                     )}
                     {step.fix && (
-                      <div className="text-rose-600 font-medium mt-0.5">
-                        {step.fix}
-                      </div>
+                      <details className="mt-1 text-xs text-zinc-600">
+                        <summary className="cursor-pointer font-medium text-indigo-600 select-none">
+                          Detail teknis
+                        </summary>
+                        <div className="mt-1 text-rose-600 font-mono">
+                          {step.fix}
+                        </div>
+                      </details>
                     )}
                   </div>
                 </div>
@@ -1588,7 +1576,7 @@ export default function NewTemplatePage() {
                     disabled={isSubmitting}
                     onClick={() => runProvisioning(currentTemplateId, true)}
                   >
-                    Gunakan folder yang ada
+                    Gunakan folder yang sudah ada
                   </Button>
                   <Button
                     type="button"
@@ -1596,7 +1584,7 @@ export default function NewTemplatePage() {
                     disabled={isSubmitting}
                     onClick={handleGantiSlug}
                   >
-                    Ganti slug
+                    Ganti nama
                   </Button>
                   <Button
                     type="button"

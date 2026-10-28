@@ -84,6 +84,7 @@ export async function POST(request: Request) {
         schema,
         name: volumeName,
       },
+      schemaCreatedByApp: false,
       volumeCreatedByApp: false,
       csvFolder: draft.csvFolder || "csv",
       parquetFolder: draft.parquetFolder || "parquet",

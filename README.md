@@ -31,11 +31,13 @@ Aplikasi berjalan pada `http://127.0.0.1:3000`. Pengaturan disimpan di database 
 
 ## Izin Akses Databricks
 
-Token akses memerlukan izin berikut pada Unity Catalog:
-- `USE CATALOG` pada katalog tujuan.
-- `USE SCHEMA` pada skema tujuan.
-- `READ VOLUME` pada volume tujuan (untuk memeriksa ketersediaan folder).
-- `WRITE VOLUME` pada volume tujuan (untuk mengunggah berkas).
+Setiap template memiliki satu skema (folder induk) dan satu volume (folder penyimpanan) di dalam katalog yang ditentukan. Disarankan untuk menggunakan **katalog khusus (dedicated catalog)** untuk aplikasi ini.
+
+1. **Akun Koneksi Aplikasi (Data Uploader)**:
+   - Memerlukan izin `USE CATALOG` dan `CREATE SCHEMA` pada katalog tujuan.
+   - Karena akun ini membuat skema dan volume untuk setiap template baru, akun tersebut otomatis menjadi pemilik (owner) atas objek yang dibuatnya dan dapat mengelola isi volume tersebut.
+2. **Akun Pipeline Data (Downstream)**:
+   - Berikan izin `USE CATALOG`, `USE SCHEMA`, dan `READ VOLUME` di tingkat katalog (catalog level) agar setiap folder template baru yang dibuat aplikasi langsung tercakup secara otomatis tanpa perlu pengaturan izin manual per template.
 
 ## Menambahkan Template Baru
 
