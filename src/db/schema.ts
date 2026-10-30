@@ -1,14 +1,15 @@
 import { sql } from "drizzle-orm";
-import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-
-export const adminLoginAttempts = pgTable("admin_login_attempts", {
-  ipHash: text("ip_hash").primaryKey(),
-  attemptCount: integer("attempt_count").notNull().default(0),
-  lockedUntil: timestamp("locked_until", { withTimezone: true }),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 export const templates = pgTable(
   "templates",
@@ -85,9 +86,6 @@ export const uploadLog = pgTable("upload_log", {
     .defaultNow()
     .notNull(),
 });
-
-export type AdminLoginAttemptRow = typeof adminLoginAttempts.$inferSelect;
-export type InsertAdminLoginAttempt = typeof adminLoginAttempts.$inferInsert;
 
 export type TemplateRow = typeof templates.$inferSelect;
 export type InsertTemplate = typeof templates.$inferInsert;

@@ -11,7 +11,6 @@ import {
   FolderCheck,
   FolderPlus,
   History,
-  Lock,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -105,28 +104,12 @@ export default function TemplatePage() {
   const [deleteStep, setDeleteStep] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [loginTarget, setLoginTarget] = useState<TemplateWithMeta | null>(null);
-  const [adminPasswordInput, setAdminPasswordInput] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"aktif" | "diarsipkan" | "semua">("aktif");
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const menuTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-
-  useEffect(() => {
-    fetch("/api/admin/login")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.isAuthenticated) {
-          setIsAdmin(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -364,41 +347,6 @@ export default function TemplatePage() {
       setPreviewError("Koneksi terputus saat memuat pratinjau penghapusan.");
     } finally {
       setPreviewLoading(false);
-    }
-  };
-
-  const openAdminLogin = (tpl: TemplateWithMeta) => {
-    setOpenMenuId(null);
-    setLoginTarget(tpl);
-    setAdminPasswordInput("");
-    setLoginError(null);
-  };
-
-  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoggingIn(true);
-    setLoginError(null);
-    try {
-      const res = await fetch("/api/admin/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: adminPasswordInput }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setLoginError(data.error || "Kata sandi salah.");
-        return;
-      }
-      setIsAdmin(true);
-      const target = loginTarget;
-      setLoginTarget(null);
-      if (target) {
-        openDeleteDialog(target);
-      }
-    } catch {
-      setLoginError("Gagal menghubungi server.");
-    } finally {
-      setIsLoggingIn(false);
     }
   };
 
@@ -666,7 +614,6 @@ export default function TemplatePage() {
             <TemplateCard
               key={tpl.id}
               tpl={tpl}
-              isAdmin={isAdmin}
               isPending={pendingActionId === tpl.id}
               isMenuOpen={openMenuId === tpl.id}
               onToggleMenu={() =>
@@ -677,7 +624,6 @@ export default function TemplatePage() {
               onDuplicate={() => handleDuplicate(tpl)}
               onToggleArchive={() => handleToggleArchive(tpl)}
               onDeletePermanent={() => openDeleteDialog(tpl)}
-              onOpenAdminLogin={() => openAdminLogin(tpl)}
               onPrepareVolume={() => handlePrepareVolume(tpl)}
               onCancelFailed={() => handleCancelFailedTemplate(tpl)}
               triggerRef={(el) => {
@@ -843,101 +789,12 @@ export default function TemplatePage() {
           </div>
         </div>
       )}
-
-      {loginTarget && (
-        <div
-          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isLoggingIn) {
-              setLoginTarget(null);
-            }
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="login-dialog-title"
-            className="bg-white border border-zinc-200 rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-700">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h2 id="login-dialog-title" className="text-lg font-semibold text-zinc-900">
-                    Masuk sebagai Admin
-                  </h2>
-                </div>
-              </div>
-              {!isLoggingIn && (
-                <button
-                  type="button"
-                  onClick={() => setLoginTarget(null)}
-                  className="text-zinc-400 hover:text-zinc-600 p-1 rounded-lg"
-                  aria-label="Tutup"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-
-            <p className="text-sm text-zinc-600">
-              Tindakan hapus permanen memerlukan sesi admin. Masukkan kata sandi admin Anda untuk melanjutkan.
-            </p>
-
-            <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-900 mb-1">
-                  Kata Sandi Admin
-                </label>
-                <input
-                  type="password"
-                  value={adminPasswordInput}
-                  onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  disabled={isLoggingIn}
-                  placeholder="Masukkan kata sandi"
-                  autoFocus
-                  required
-                  className="w-full h-11 px-3 rounded-lg border border-zinc-300 text-base text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:opacity-50"
-                />
-              </div>
-
-              {loginError && (
-                <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3">
-                  {loginError}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={isLoggingIn}
-                  onClick={() => setLoginTarget(null)}
-                >
-                  Batal
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  isLoading={isLoggingIn}
-                  disabled={!adminPasswordInput || isLoggingIn}
-                >
-                  Masuk
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 interface TemplateCardProps {
   tpl: TemplateWithMeta;
-  isAdmin: boolean;
   isPending?: boolean;
   isMenuOpen: boolean;
   onToggleMenu: () => void;
@@ -946,7 +803,6 @@ interface TemplateCardProps {
   onDuplicate: () => void;
   onToggleArchive: () => void;
   onDeletePermanent: () => void;
-  onOpenAdminLogin: () => void;
   onPrepareVolume: () => void;
   onCancelFailed?: () => void;
   triggerRef: (el: HTMLButtonElement | null) => void;
@@ -954,7 +810,6 @@ interface TemplateCardProps {
 
 function TemplateCard({
   tpl,
-  isAdmin,
   isPending = false,
   isMenuOpen,
   onToggleMenu,
@@ -963,7 +818,6 @@ function TemplateCard({
   onDuplicate,
   onToggleArchive,
   onDeletePermanent,
-  onOpenAdminLogin,
   onPrepareVolume,
   onCancelFailed,
   triggerRef,
@@ -1206,33 +1060,18 @@ function TemplateCard({
                 tpl.status === "membuat") && (
                 <>
                   <div className="border-t border-zinc-100 my-1" />
-                  {isAdmin ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        onCloseMenu();
-                        onDeletePermanent();
-                      }}
-                      className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer flex items-center gap-2.5"
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
-                      <span>Hapus permanen</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        onCloseMenu();
-                        onOpenAdminLogin();
-                      }}
-                      className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-400 hover:bg-zinc-50 transition-colors cursor-pointer flex items-center gap-2.5"
-                    >
-                      <Lock className="w-4 h-4 text-zinc-400 shrink-0" />
-                      <span>Hapus permanen (hanya admin)</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onCloseMenu();
+                      onDeletePermanent();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer flex items-center gap-2.5"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>Hapus permanen</span>
+                  </button>
                 </>
               )}
             </div>
