@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { Toaster } from "sonner";
-import TopNav from "@/components/TopNav";
+import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Data Uploader",
+  title: "Portal Data",
   description: "Validasi dan unggah berkas data ke Databricks",
 };
 
@@ -16,13 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-[#fafafa] text-zinc-900 font-sans">
-        <Suspense fallback={<header className="border-b border-zinc-200 bg-white h-14" />}>
-          <TopNav />
-        </Suspense>
-        <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-8">
-          {children}
-        </main>
+      <body className="min-h-full bg-[#fafafa] text-zinc-900 font-sans">
+        <AppShell>{children}</AppShell>
         <Toaster
           position="bottom-right"
           theme="light"

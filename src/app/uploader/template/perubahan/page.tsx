@@ -41,7 +41,7 @@ export default function TemplateChangesPage() {
           description="Daftar pembaruan versi dan catatan perubahan struktur template data."
         />
         <Link
-          href="/template"
+          href="/uploader/template"
           className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
         >
           Kembali ke Daftar Template

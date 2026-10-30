@@ -224,7 +224,7 @@ export default function TemplatePage() {
       description: tpl.description || "",
       copyFromId: tpl.id,
     });
-    router.push(`/template/baru?${params.toString()}`);
+    router.push(`/uploader/template/baru?${params.toString()}`);
   };
 
   const handleToggleArchive = async (tpl: TemplateWithMeta) => {
@@ -524,7 +524,7 @@ export default function TemplatePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <Link href="/template/baru">
+          <Link href="/uploader/template/baru">
             <Button
               variant="primary"
               className="whitespace-nowrap gap-2 min-h-[44px]"
@@ -533,7 +533,7 @@ export default function TemplatePage() {
               <span>Buat template</span>
             </Button>
           </Link>
-          <Link href="/template/perubahan">
+          <Link href="/uploader/template/perubahan">
             <Button
               variant="secondary"
               className="whitespace-nowrap gap-2 min-h-[44px]"
@@ -637,7 +637,7 @@ export default function TemplatePage() {
             </p>
           </div>
           <div>
-            <Link href="/template/baru">
+            <Link href="/uploader/template/baru">
               <Button variant="primary">
                 <Plus className="w-4 h-4 mr-1.5 inline" />
                 Buat template
@@ -1124,7 +1124,7 @@ function TemplateCard({
           <span>Unduh template</span>
         </Button>
 
-        <Link href={`/template/${tpl.id}/edit`}>
+        <Link href={`/uploader/template/${tpl.id}/edit`}>
           <Button
             type="button"
             variant="secondary"
@@ -1183,7 +1183,7 @@ function TemplateCard({
                 <span>Buat dari template ini</span>
               </button>
               <Link
-                href="/template/perubahan"
+                href="/uploader/template/perubahan"
                 role="menuitem"
                 onClick={onCloseMenu}
                 className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
