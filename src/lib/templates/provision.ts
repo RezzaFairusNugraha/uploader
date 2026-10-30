@@ -74,8 +74,7 @@ export async function provisionTemplate(
 
   const catalog = dbConfig?.catalog || template.volume?.catalog || "main";
   const schemaName = template.slug;
-  const configuredVolume = dbConfig?.volumeName?.trim() || "";
-  const volumeName = resolveVolumeName(template.slug, configuredVolume);
+  const volumeName = template.slug;
 
   const COLLISION_MSG = "Nama folder sudah dipakai. Pilih nama lain.";
 

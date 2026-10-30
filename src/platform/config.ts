@@ -25,7 +25,6 @@ const DatabricksSchema = z.object({
   DATABRICKS_HOST: requiredText.transform(normalizeHost),
   DATABRICKS_TOKEN: requiredText,
   DATABRICKS_CATALOG: requiredText,
-  DATABRICKS_VOLUME_NAME: z.string().trim().optional(),
 });
 
 const DatabaseSchema = z.object({
@@ -66,7 +65,6 @@ export interface DatabricksConfig {
   workspaceHost: string;
   token: string;
   catalog: string;
-  volumeName: string;
 }
 
 export interface AdminConfig {
@@ -100,21 +98,17 @@ function reportMissing(group: string, keys: string[]): void {
 }
 
 export function getDatabricksConfig(): DatabricksConfig | null {
-  const parsed = DatabricksSchema.safeParse(
-    readRaw([...CONFIG_GROUPS.databricks, "DATABRICKS_VOLUME_NAME"])
-  );
+  const parsed = DatabricksSchema.safeParse(readRaw(CONFIG_GROUPS.databricks));
   if (!parsed.success) {
     reportMissing("databricks", invalidKeys(parsed.error));
     return null;
   }
   const d = parsed.data;
-  const rawVolume = getEnv("DATABRICKS_VOLUME_NAME");
   return {
     host: d.DATABRICKS_HOST,
     workspaceHost: hostOnly(d.DATABRICKS_HOST),
     token: d.DATABRICKS_TOKEN,
     catalog: d.DATABRICKS_CATALOG,
-    volumeName: rawVolume === undefined ? "file_storage" : rawVolume.trim(),
   };
 }
 

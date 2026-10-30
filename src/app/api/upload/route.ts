@@ -185,7 +185,7 @@ export async function POST(request: Request) {
     );
     const catalog = template.volume?.catalog || dbConfig.catalog;
     const schema = template.volume?.schema || templateSlug;
-    const volumeName = template.volume?.name || dbConfig.volumeName || templateSlug;
+    const volumeName = template.volume?.name || templateSlug;
 
     const destinationPath = buildVolumePath(
       catalog,

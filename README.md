@@ -23,7 +23,6 @@ Semua pengaturan aplikasi dan koneksi penyimpanan dikonfigurasi melalui variabel
 | `DATABRICKS_HOST` | Alamat workspace Databricks (otomatis dinormalisasi dengan https) | - | Wajib |
 | `DATABRICKS_TOKEN` | Token akses pribadi (PAT) Databricks untuk operasi penyimpanan | - | Wajib |
 | `DATABRICKS_CATALOG` | Nama Unity Catalog tujuan penyimpanan berkas | - | Wajib |
-| `DATABRICKS_VOLUME_NAME` | Nama folder penyimpanan (volume). Jika kosong, menggunakan nama folder template | `file_storage` | Opsional |
 | `DATABASE_URL` | URL koneksi pool Neon Postgres untuk runtime aplikasi | - | Wajib |
 | `DIRECT_DATABASE_URL` | URL koneksi langsung Neon Postgres (digunakan saat migrasi) | - | Wajib (migrasi) |
 | `ADMIN_PASSWORD` | Kata sandi admin untuk otorisasi penghapusan template permanen | - | Wajib |
