@@ -6,18 +6,12 @@ import {
   getConfigStatus,
 } from "@/platform/config";
 import {
-  hashIp,
-  verifyAdminPassword,
-  signAdminToken,
-  verifyAdminToken,
-} from "@/lib/adminAuth";
-import {
   FakeInMemoryTemplateRepository,
   setTemplateRepository,
 } from "./repository";
 import type { TemplateDefinition } from "./schema";
 
-describe("Part A: Configuration, Status, Admin Auth & Host Check", () => {
+describe("Part A: Configuration, Status, & Host Check", () => {
   let fakeRepo: FakeInMemoryTemplateRepository;
 
   const sampleTemplate = (overrides?: Partial<TemplateDefinition>): TemplateDefinition => ({
@@ -30,7 +24,7 @@ describe("Part A: Configuration, Status, Admin Auth & Host Check", () => {
     volume: {
       catalog: "main",
       schema: "template_test",
-      name: "file_storage",
+      name: "template_test",
     },
     schemaCreatedByApp: true,
     volumeCreatedByApp: true,
@@ -58,35 +52,8 @@ describe("Part A: Configuration, Status, Admin Auth & Host Check", () => {
     const status = getConfigStatus();
     expect(typeof status.databricks).toBe("boolean");
     expect(typeof status.database).toBe("boolean");
-    expect(typeof status.admin).toBe("boolean");
     const keys = Object.keys(status).sort();
-    expect(keys).toEqual(["admin", "database", "databricks"]);
-  });
-
-  it("verifies admin credentials and signs 8-hour token", () => {
-    const origPass = process.env.ADMIN_PASSWORD;
-    const origSec = process.env.SESSION_SECRET;
-
-    try {
-      process.env.ADMIN_PASSWORD = "secret_password_123";
-      process.env.SESSION_SECRET = "super_long_secret_key_at_least_32_characters_123456";
-
-      expect(verifyAdminPassword("secret_password_123")).toBe(true);
-      expect(verifyAdminPassword("wrong_password")).toBe(false);
-
-      const token = signAdminToken();
-      expect(verifyAdminToken(token)).toBe(true);
-      expect(verifyAdminToken("invalid.token")).toBe(false);
-      expect(verifyAdminToken("")).toBe(false);
-
-      const ipHash1 = hashIp("192.168.1.1");
-      const ipHash2 = hashIp("192.168.1.1");
-      expect(ipHash1).toBe(ipHash2);
-      expect(ipHash1).not.toBe("192.168.1.1");
-    } finally {
-      process.env.ADMIN_PASSWORD = origPass;
-      process.env.SESSION_SECRET = origSec;
-    }
+    expect(keys).toEqual(["database", "databricks"]);
   });
 
   it("identifies host mismatch and refuses upload if workspaceHost differs", async () => {

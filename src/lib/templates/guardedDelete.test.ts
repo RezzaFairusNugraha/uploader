@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { GET as deletePreviewRoute } from "@/app/api/templates/[id]/delete-preview/route";
 import { POST as deleteRoute } from "@/app/api/templates/[id]/delete/route";
-import { DELETE as cancelTemplateRoute } from "@/app/api/templates/[id]/route";
-import { signAdminToken } from "@/lib/adminAuth";
 import {
   FakeInMemoryTemplateRepository,
   setTemplateRepository,
@@ -57,8 +55,6 @@ describe("Guarded Permanent Delete Flow", () => {
     process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
     process.env.DATABRICKS_TOKEN = "secret-token";
     process.env.DATABRICKS_CATALOG = "main";
-    process.env.ADMIN_PASSWORD = "admin_password_123";
-    process.env.SESSION_SECRET = "super_long_secret_key_at_least_32_characters_123456";
   });
 
   afterEach(() => {
@@ -67,7 +63,6 @@ describe("Guarded Permanent Delete Flow", () => {
   });
 
   it("delete refused for an active template", async () => {
-    const validToken = signAdminToken();
     const activeTemplate: TemplateDefinition = {
       ...sampleArchivedTemplate,
       id: crypto.randomUUID(),
@@ -83,11 +78,10 @@ describe("Guarded Permanent Delete Flow", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
           confirmName: activeTemplate.name,
-          deletedBy: "Admin Budi",
+          deletedBy: "Pengguna",
         }),
       }
     );
@@ -102,7 +96,6 @@ describe("Guarded Permanent Delete Flow", () => {
   });
 
   it("delete refused for a wrong confirmName", async () => {
-    const validToken = signAdminToken();
     await templateRepo.create(sampleArchivedTemplate);
 
     const req = new Request(
@@ -111,11 +104,10 @@ describe("Guarded Permanent Delete Flow", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
           confirmName: "Nama Yang Salah",
-          deletedBy: "Admin Budi",
+          deletedBy: "Pengguna",
         }),
       }
     );
@@ -128,30 +120,7 @@ describe("Guarded Permanent Delete Flow", () => {
     expect(data.error).toBe("Nama konfirmasi tidak sesuai dengan nama template.");
   });
 
-  it("delete requires admin session", async () => {
-    await templateRepo.create(sampleArchivedTemplate);
-
-    const req = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          confirmName: sampleArchivedTemplate.name,
-        }),
-      }
-    );
-
-    const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
-    });
-    expect(res.status).toBe(401);
-  });
-
   it("deletes volume then schema in order when flags are true and schema is empty, never sending force", async () => {
-    const validToken = signAdminToken();
     await templateRepo.create(sampleArchivedTemplate);
 
     const calls: { method: string; url: string }[] = [];
@@ -181,11 +150,10 @@ describe("Guarded Permanent Delete Flow", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
           confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin",
+          deletedBy: "Budi",
         }),
       }
     );
@@ -206,7 +174,6 @@ describe("Guarded Permanent Delete Flow", () => {
   });
 
   it("keeps schema when schema is not empty and reports notice", async () => {
-    const validToken = signAdminToken();
     await templateRepo.create(sampleArchivedTemplate);
 
     const calls: { method: string; url: string }[] = [];
@@ -230,11 +197,10 @@ describe("Guarded Permanent Delete Flow", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
           confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin",
+          deletedBy: "Budi",
         }),
       }
     );
@@ -252,7 +218,6 @@ describe("Guarded Permanent Delete Flow", () => {
   });
 
   it("older templates with flags false only lose their definition without touching Databricks", async () => {
-    const validToken = signAdminToken();
     const olderTemplate: TemplateDefinition = {
       ...sampleArchivedTemplate,
       id: crypto.randomUUID(),
@@ -273,7 +238,6 @@ describe("Guarded Permanent Delete Flow", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
           confirmName: olderTemplate.name,

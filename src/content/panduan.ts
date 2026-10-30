@@ -62,7 +62,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
       "Pembuatan template baru menyediakan dua cara: 'Dari file contoh' (membaca struktur kolom dan menebak aturan secara otomatis) atau 'Isi sendiri'.",
       "Saat template disimpan dan disiapkan, sistem secara otomatis membuat folder induk (schema) sesuai nama folder template dan folder penyimpanan (volume) di Databricks beserta subfolder csv dan parquet.",
       "Setiap pembaruan struktur kolom otomatis dicatat pada riwayat versi template.",
-      "Penghapusan template secara permanen membutuhkan kata sandi admin demi keamanan penyimpanan data.",
+      "Penghapusan template secara permanen memerlukan konfirmasi pengetikan nama template demi keamanan penyimpanan data.",
     ],
   },
 ];

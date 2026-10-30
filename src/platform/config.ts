@@ -31,11 +31,6 @@ const DatabaseSchema = z.object({
   DATABASE_URL: requiredText,
 });
 
-const AdminSchema = z.object({
-  ADMIN_PASSWORD: requiredText,
-  SESSION_SECRET: z.string().min(32),
-});
-
 const positiveInt = (fallback: number) =>
   z
     .string()
@@ -55,7 +50,6 @@ const LimitsSchema = z.object({
 export const CONFIG_GROUPS = {
   databricks: ["DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_CATALOG"],
   database: ["DATABASE_URL"],
-  admin: ["ADMIN_PASSWORD", "SESSION_SECRET"],
 } as const;
 
 export type ConfigGroup = keyof typeof CONFIG_GROUPS;
@@ -65,11 +59,6 @@ export interface DatabricksConfig {
   workspaceHost: string;
   token: string;
   catalog: string;
-}
-
-export interface AdminConfig {
-  password: string;
-  sessionSecret: string;
 }
 
 export interface LimitsConfig {
@@ -121,18 +110,6 @@ export function getDatabaseUrlConfig(): string | null {
   return parsed.data.DATABASE_URL;
 }
 
-export function getAdminConfig(): AdminConfig | null {
-  const parsed = AdminSchema.safeParse(readRaw(CONFIG_GROUPS.admin));
-  if (!parsed.success) {
-    reportMissing("admin", invalidKeys(parsed.error));
-    return null;
-  }
-  return {
-    password: parsed.data.ADMIN_PASSWORD,
-    sessionSecret: parsed.data.SESSION_SECRET,
-  };
-}
-
 export function getLimitsConfig(): LimitsConfig {
   const parsed = LimitsSchema.parse(
     readRaw(["MAX_UPLOAD_MB", "MAX_TEMPLATES", "DEPLOY_TARGET"])
@@ -148,6 +125,5 @@ export function getConfigStatus(): Record<ConfigGroup, boolean> {
   return {
     databricks: getDatabricksConfig() !== null,
     database: getDatabaseUrlConfig() !== null,
-    admin: getAdminConfig() !== null,
   };
 }

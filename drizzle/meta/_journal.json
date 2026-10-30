@@ -36,6 +36,13 @@
       "when": 1793346438715,
       "tag": "0004_perpetual_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793350811881,
+      "tag": "0005_rich_bloodstrike",
+      "breakpoints": true
     }
   ]
 }

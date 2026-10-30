@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { ADMIN_COOKIE_NAME, verifyAdminToken } from "@/lib/adminAuth";
 import { createDatabricksClient } from "@/lib/databricks";
 import { templateRepository } from "@/lib/templates/repository";
 import { uploadLogRepository } from "@/lib/upload/log";
@@ -12,27 +10,6 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let session: string | undefined;
-  try {
-    const cookieStore = await cookies();
-    session = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
-  } catch {
-  }
-  if (!session) {
-    const cookieHeader = request.headers.get("cookie") || "";
-    const match = cookieHeader.match(new RegExp(`${ADMIN_COOKIE_NAME}=([^;]+)`));
-    if (match) {
-      session = match[1];
-    }
-  }
-
-  if (!session || !verifyAdminToken(session)) {
-    return NextResponse.json(
-      { error: "Sesi admin diperlukan untuk melihat pratinjau hapus." },
-      { status: 401 }
-    );
-  }
-
   const { id } = await params;
   const template = await templateRepository.get(id);
   if (!template) {
