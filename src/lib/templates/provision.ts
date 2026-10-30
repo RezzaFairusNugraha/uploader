@@ -1,8 +1,12 @@
-import { createDatabricksClient } from "@/lib/databricks";
-import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
+import { createDatabricksClient, type DatabricksClient } from "@/lib/databricks";
 import { USER_COPY } from "@/lib/copy";
+import { getDatabricksConfig } from "@/platform/config";
 import { templateRepository } from "./repository";
-import { resolveVolumeName } from "./naming";
+import {
+  isReservedObjectName,
+  isValidObjectName,
+  resolveVolumeName,
+} from "./naming";
 import type { ProvisionStepStatus, TemplateDefinition } from "./schema";
 
 export interface ProvisionTemplateResult {
@@ -11,17 +15,10 @@ export interface ProvisionTemplateResult {
   steps: ProvisionStepStatus[];
   error?: string;
   errorDetail?: string;
-  schemaExists?: boolean;
-  volumeExists?: boolean;
 }
 
 export interface ProvisionTemplateOptions {
-  adoptExisting?: boolean;
-  reuseExistingVolume?: boolean;
-  catalog?: string;
-  schema?: string;
-  volumeName?: string;
-  changedBy?: string;
+  client?: DatabricksClient;
 }
 
 export async function provisionTemplate(
@@ -33,20 +30,14 @@ export async function provisionTemplate(
     throw new Error(`Template dengan id '${templateId}' tidak ditemukan`);
   }
 
-  const conn = await getConnectionState();
-  if (conn.error) {
-    throw new Error(USER_COPY.connection.dbUnavailable);
-  }
-  if (!conn.ready) {
-    throw new Error(USER_COPY.connection.buildIncompleteMessage(conn.missing));
+  const dbConfig = getDatabricksConfig();
+  if (!dbConfig && !options?.client) {
+    throw new Error(USER_COPY.connection.notConnected);
   }
 
-  const settings = await readDecryptedSettings();
-  if (!settings || !settings.workspaceUrl || !settings.token) {
-    throw new Error(USER_COPY.connection.buildIncompleteMessage(["alamat", "token"]));
-  }
-
-  const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+  const client =
+    options?.client ||
+    createDatabricksClient(dbConfig!.host, dbConfig!.token);
 
   const steps: ProvisionStepStatus[] = [
     {
@@ -81,16 +72,32 @@ export async function provisionTemplate(
     },
   ];
 
-  const catalog = options?.catalog || settings.catalog || template.volume?.catalog || "main";
-  const schemaName = options?.schema || template.volume?.schema || template.slug;
-  const volumeName =
-    options?.volumeName ||
-    template.volume?.name ||
-    resolveVolumeName(template.slug, settings.defaultVolumeName);
+  const catalog = dbConfig?.catalog || template.volume?.catalog || "main";
+  const schemaName = template.slug;
+  const configuredVolume = dbConfig?.volumeName?.trim() || "";
+  const volumeName = resolveVolumeName(template.slug, configuredVolume);
+
+  const COLLISION_MSG = "Nama folder sudah dipakai. Pilih nama lain.";
+
+  if (
+    !isValidObjectName(schemaName) ||
+    isReservedObjectName(schemaName) ||
+    !isValidObjectName(volumeName) ||
+    isReservedObjectName(volumeName)
+  ) {
+    steps[1].status = "error";
+    steps[1].message = COLLISION_MSG;
+    await templateRepository.update(templateId, { status: "gagal" });
+    return {
+      success: false,
+      template: (await templateRepository.get(templateId)) || template,
+      steps,
+      error: COLLISION_MSG,
+    };
+  }
 
   let schemaCreatedByApp = false;
   let volumeCreatedByApp = false;
-  const shouldAdopt = options?.adoptExisting === true || options?.reuseExistingVolume === true;
   const expectedMarker = `Dibuat oleh Data Uploader (template ${templateId})`;
 
   try {
@@ -103,21 +110,15 @@ export async function provisionTemplate(
         schemaCreatedByApp = true;
         steps[1].status = "success";
         steps[1].message = "Melanjutkan folder induk yang sudah disiapkan.";
-      } else if (shouldAdopt) {
-        schemaCreatedByApp = false;
-        volumeCreatedByApp = false;
-        steps[1].status = "success";
-        steps[1].message = "Menggunakan folder yang sudah ada.";
       } else {
         steps[1].status = "error";
-        steps[1].message = "Folder induk sudah ada di Databricks.";
+        steps[1].message = COLLISION_MSG;
         await templateRepository.update(templateId, { status: "gagal" });
         return {
           success: false,
           template: (await templateRepository.get(templateId)) || template,
           steps,
-          schemaExists: true,
-          error: "Folder induk sudah ada. Anda dapat menggunakan folder yang sudah ada atau mengganti nama.",
+          error: COLLISION_MSG,
         };
       }
     } else {
@@ -127,7 +128,7 @@ export async function provisionTemplate(
         if (createSchemaRes.status === 403) {
           steps[1].message =
             "Akun koneksi belum punya izin membuat folder penyimpanan baru. Hubungi admin.";
-          steps[1].fix = `Izin yang dibutuhkan: USE CATALOG dan CREATE SCHEMA pada katalog '${catalog}'.`;
+          steps[1].fix = `USE CATALOG dan CREATE SCHEMA pada katalog '${catalog}'.`;
         } else {
           steps[1].message = createSchemaRes.error || "Gagal membuat folder induk";
         }
@@ -148,26 +149,38 @@ export async function provisionTemplate(
     const volumeCheck = await client.getVolume(catalog, schemaName, volumeName);
 
     if (volumeCheck.success && volumeCheck.data) {
-      if (!schemaCreatedByApp || shouldAdopt) {
-        volumeCreatedByApp = false;
-      } else {
+      const comment = volumeCheck.data.comment || "";
+      if (comment.includes(expectedMarker)) {
         volumeCreatedByApp = true;
+        steps[2].status = "success";
+        steps[2].message = "Melanjutkan folder penyimpanan yang sudah disiapkan.";
+      } else {
+        steps[2].status = "error";
+        steps[2].message = COLLISION_MSG;
+        await templateRepository.update(templateId, { status: "gagal" });
+        return {
+          success: false,
+          template: (await templateRepository.get(templateId)) || template,
+          steps,
+          error: COLLISION_MSG,
+        };
       }
-      steps[2].status = "success";
     } else {
       const createVolRes = await client.createVolume(
         catalog,
         schemaName,
         volumeName,
-        `Volume untuk template ${template.name}`
+        expectedMarker
       );
       if (!createVolRes.success && createVolRes.status !== 409) {
         steps[2].status = "error";
-        steps[2].message = createVolRes.error || "Gagal membuat folder penyimpanan";
-        steps[2].fix =
-          createVolRes.status === 403
-            ? `Pastikan token memiliki izin CREATE VOLUME pada skema '${schemaName}'.`
-            : undefined;
+        if (createVolRes.status === 403) {
+          steps[2].message =
+            "Akun koneksi belum punya izin membuat folder penyimpanan baru. Hubungi admin.";
+          steps[2].fix = `USE CATALOG dan CREATE SCHEMA pada katalog '${catalog}'.`;
+        } else {
+          steps[2].message = createVolRes.error || "Gagal membuat folder penyimpanan";
+        }
         await templateRepository.update(templateId, { status: "gagal" });
         return {
           success: false,
@@ -177,53 +190,44 @@ export async function provisionTemplate(
           errorDetail: steps[2].fix,
         };
       }
-      volumeCreatedByApp = schemaCreatedByApp;
+      volumeCreatedByApp = true;
       steps[2].status = "success";
     }
 
     steps[3].status = "running";
-    const csvFolder = template.csvFolder ?? "csv";
-    if (csvFolder) {
-      const csvPath = `/Volumes/${catalog}/${schemaName}/${volumeName}/${csvFolder}`;
-      const csvRes = await client.createDirectory(csvPath);
-      if (!csvRes.success && csvRes.status !== 409) {
-        steps[3].status = "error";
-        steps[3].message = csvRes.error || `Gagal membuat folder ${csvFolder}/`;
-        await templateRepository.update(templateId, { status: "gagal" });
-        return {
-          success: false,
-          template: (await templateRepository.get(templateId)) || template,
-          steps,
-          error: steps[3].message,
-        };
-      }
+    const csvPath = `/Volumes/${catalog}/${schemaName}/${volumeName}/csv`;
+    const csvRes = await client.createDirectory(csvPath);
+    if (!csvRes.success && csvRes.status !== 409) {
+      steps[3].status = "error";
+      steps[3].message = csvRes.error || "Gagal membuat folder csv/";
+      await templateRepository.update(templateId, { status: "gagal" });
+      return {
+        success: false,
+        template: (await templateRepository.get(templateId)) || template,
+        steps,
+        error: steps[3].message,
+      };
     }
     steps[3].status = "success";
 
     steps[4].status = "running";
-    const parquetFolder = template.parquetFolder ?? "parquet";
-    if (parquetFolder) {
-      const parquetPath = `/Volumes/${catalog}/${schemaName}/${volumeName}/${parquetFolder}`;
-      const parquetRes = await client.createDirectory(parquetPath);
-      if (!parquetRes.success && parquetRes.status !== 409) {
-        steps[4].status = "error";
-        steps[4].message = parquetRes.error || `Gagal membuat folder ${parquetFolder}/`;
-        await templateRepository.update(templateId, { status: "gagal" });
-        return {
-          success: false,
-          template: (await templateRepository.get(templateId)) || template,
-          steps,
-          error: steps[4].message,
-        };
-      }
+    const parquetPath = `/Volumes/${catalog}/${schemaName}/${volumeName}/parquet`;
+    const parquetRes = await client.createDirectory(parquetPath);
+    if (!parquetRes.success && parquetRes.status !== 409) {
+      steps[4].status = "error";
+      steps[4].message = parquetRes.error || "Gagal membuat folder parquet/";
+      await templateRepository.update(templateId, { status: "gagal" });
+      return {
+        success: false,
+        template: (await templateRepository.get(templateId)) || template,
+        steps,
+        error: steps[4].message,
+      };
     }
     steps[4].status = "success";
 
     steps[5].status = "running";
-    const workspaceHost = settings.workspaceUrl
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "")
-      .toLowerCase();
+    const workspaceHost = dbConfig?.workspaceHost || null;
 
     template = await templateRepository.update(templateId, {
       status: "aktif",
@@ -235,9 +239,6 @@ export async function provisionTemplate(
       schemaCreatedByApp,
       volumeCreatedByApp,
       workspaceHost,
-      needsCheck: false,
-      visibility: "terlihat",
-      visibilityCheckedAt: new Date().toISOString(),
     });
     steps[5].status = "success";
 

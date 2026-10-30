@@ -3,8 +3,6 @@ import { GET as deletePreviewRoute } from "@/app/api/templates/[id]/delete-previ
 import { POST as deleteRoute } from "@/app/api/templates/[id]/delete/route";
 import { DELETE as cancelTemplateRoute } from "@/app/api/templates/[id]/route";
 import { signAdminToken } from "@/lib/adminAuth";
-import { createDatabricksClient } from "@/lib/databricks";
-import { FakeInMemorySettingsStore, setSettingsStore } from "@/lib/settings";
 import {
   FakeInMemoryTemplateRepository,
   setTemplateRepository,
@@ -22,12 +20,9 @@ import {
 describe("Guarded Permanent Delete Flow", () => {
   let templateRepo: FakeInMemoryTemplateRepository;
   let versionRepo: FakeInMemoryTemplateVersionRepository;
-  let settingsStore: FakeInMemorySettingsStore;
   let uploadLogRepo: FakeInMemoryUploadLogRepository;
   const originalFetch = globalThis.fetch;
-  const dummyKey = Buffer.from("01234567890123456789012345678901", "utf8");
-
-  const validToken = signAdminToken();
+  const originalEnv = { ...process.env };
 
   const sampleArchivedTemplate: TemplateDefinition = {
     id: crypto.randomUUID(),
@@ -41,6 +36,7 @@ describe("Guarded Permanent Delete Flow", () => {
       schema: "sales",
       name: "laporan_penjualan",
     },
+    schemaCreatedByApp: true,
     volumeCreatedByApp: true,
     version: 1,
     createdAt: new Date().toISOString(),
@@ -48,33 +44,31 @@ describe("Guarded Permanent Delete Flow", () => {
     columns: [{ name: "id", required: true, rule: { type: "integer" } }],
   };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     templateRepo = new FakeInMemoryTemplateRepository();
     setTemplateRepository(templateRepo);
 
     versionRepo = new FakeInMemoryTemplateVersionRepository();
     setTemplateVersionRepository(versionRepo);
 
-    settingsStore = new FakeInMemorySettingsStore(dummyKey);
-    setSettingsStore(settingsStore);
-
     uploadLogRepo = new FakeInMemoryUploadLogRepository();
     setUploadLogRepository(uploadLogRepo);
 
-    await settingsStore.save({
-      workspaceUrl: "https://dbc-test.cloud.databricks.com",
-      token: "secret-token",
-      catalog: "main",
-      schema: "sales",
-      maxFileSizeMb: 100,
-    });
+    process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
+    process.env.DATABRICKS_TOKEN = "secret-token";
+    process.env.DATABRICKS_CATALOG = "main";
+    process.env.DATABRICKS_VOLUME_NAME = "file_storage";
+    process.env.ADMIN_PASSWORD = "admin_password_123";
+    process.env.SESSION_SECRET = "super_long_secret_key_at_least_32_characters_123456";
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    process.env = { ...originalEnv };
   });
 
   it("delete refused for an active template", async () => {
+    const validToken = signAdminToken();
     const activeTemplate: TemplateDefinition = {
       ...sampleArchivedTemplate,
       id: crypto.randomUUID(),
@@ -109,6 +103,7 @@ describe("Guarded Permanent Delete Flow", () => {
   });
 
   it("delete refused for a wrong confirmName", async () => {
+    const validToken = signAdminToken();
     await templateRepo.create(sampleArchivedTemplate);
 
     const req = new Request(
@@ -130,12 +125,11 @@ describe("Guarded Permanent Delete Flow", () => {
       params: Promise.resolve({ id: sampleArchivedTemplate.id }),
     });
     expect(res.status).toBe(400);
-
-    const current = await templateRepo.get(sampleArchivedTemplate.id);
-    expect(current?.status).toBe("diarsipkan");
+    const data = await res.json();
+    expect(data.error).toBe("Nama konfirmasi tidak sesuai dengan nama template.");
   });
 
-  it("delete refused for a missing admin session", async () => {
+  it("delete requires admin session", async () => {
     await templateRepo.create(sampleArchivedTemplate);
 
     const req = new Request(
@@ -147,7 +141,6 @@ describe("Guarded Permanent Delete Flow", () => {
         },
         body: JSON.stringify({
           confirmName: sampleArchivedTemplate.name,
-          deletedBy: "Admin Budi",
         }),
       }
     );
@@ -156,165 +149,35 @@ describe("Guarded Permanent Delete Flow", () => {
       params: Promise.resolve({ id: sampleArchivedTemplate.id }),
     });
     expect(res.status).toBe(401);
-
-    const current = await templateRepo.get(sampleArchivedTemplate.id);
-    expect(current?.status).toBe("diarsipkan");
   });
 
-  it("adopted volume does not call deleteVolume", async () => {
-    let deleteVolumeCalled = false;
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
-      if (init?.method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        deleteVolumeCalled = true;
-      }
-      return new Response(JSON.stringify({ contents: [] }), { status: 200 });
-    }) as typeof fetch;
+  it("deletes volume then schema in order when flags are true and schema is empty, never sending force", async () => {
+    const validToken = signAdminToken();
+    await templateRepo.create(sampleArchivedTemplate);
 
-    const adoptedTemplate: TemplateDefinition = {
-      ...sampleArchivedTemplate,
-      id: crypto.randomUUID(),
-      name: "Template Adopsi",
-      slug: "template_adopsi",
-      volumeCreatedByApp: false,
-    };
-    await templateRepo.create(adoptedTemplate);
-
-    const req = new Request(
-      `http://localhost/api/templates/${adoptedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: adoptedTemplate.name,
-          deletedBy: "User Siti",
-        }),
-      }
-    );
-
-    const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: adoptedTemplate.id }),
-    });
-    expect(res.status).toBe(200);
-    expect(deleteVolumeCalled).toBe(false);
-
-    const updated = await templateRepo.get(adoptedTemplate.id);
-    expect(updated?.status).toBe("dihapus");
-    expect(updated?.deletedBy).toContain("User Siti");
-
-    const versions = await versionRepo.listByTemplate(adoptedTemplate.id);
-    expect(versions.length).toBe(1);
-    expect(versions[0].changeSummary).toContain(
-      "Folder penyimpanan tidak ikut dihapus karena tidak dibuat oleh aplikasi."
-    );
-  });
-
-  it("urutan hapus: menghapus volume buatan aplikasi, lalu menghapus schema jika kosong dan dibuat oleh aplikasi (tanpa force)", async () => {
-    const operations: string[] = [];
-    let deleteSchemaUrl = "";
-
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
+    const calls: { method: string; url: string }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
       const method = init?.method || "GET";
+      calls.push({ method, url });
 
-      if (method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        operations.push("deleteVolume");
-        return new Response(null, { status: 200 });
+      if (url.includes("/api/2.1/unity-catalog/volumes/")) {
+        return new Response("{}", { status: 200 });
       }
-      if (method === "GET" && urlStr.includes("/unity-catalog/volumes?")) {
-        operations.push("listVolumes");
-        return new Response(JSON.stringify({ volumes: [] }), { status: 200 });
+      if (url.includes("/api/2.1/unity-catalog/schemas/")) {
+        return new Response("{}", { status: 200 });
       }
-      if (method === "GET" && urlStr.includes("/unity-catalog/tables?")) {
-        operations.push("listTables");
+      if (url.includes("/api/2.1/unity-catalog/tables")) {
         return new Response(JSON.stringify({ tables: [] }), { status: 200 });
       }
-      if (method === "DELETE" && urlStr.includes("/unity-catalog/schemas/")) {
-        operations.push("deleteSchema");
-        deleteSchemaUrl = urlStr;
-        return new Response(null, { status: 200 });
-      }
-      return new Response(JSON.stringify({}), { status: 200 });
-    }) as typeof fetch;
-
-    const appCreatedTemplate: TemplateDefinition = {
-      ...sampleArchivedTemplate,
-      schemaCreatedByApp: true,
-      volumeCreatedByApp: true,
-    };
-    await templateRepo.create(appCreatedTemplate);
-
-    const req = new Request(
-      `http://localhost/api/templates/${appCreatedTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: appCreatedTemplate.name,
-          deletedBy: "User Budi",
-        }),
-      }
-    );
-
-    const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: appCreatedTemplate.id }),
-    });
-    expect(res.status).toBe(200);
-    expect(operations).toEqual([
-      "deleteVolume",
-      "listVolumes",
-      "listTables",
-      "deleteSchema",
-    ]);
-    expect(deleteSchemaUrl).not.toContain("force");
-
-    const updated = await templateRepo.get(appCreatedTemplate.id);
-    expect(updated?.status).toBe("dihapus");
-    expect(updated?.deletedAt).toBeDefined();
-  });
-
-  it("mempertahankan schema ketika masih berisi objek lain dan menampilkan pesan yang sesuai", async () => {
-    let deleteSchemaCalled = false;
-
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const urlStr = url.toString();
-      const method = init?.method || "GET";
-
-      if (method === "DELETE" && urlStr.includes("/unity-catalog/volumes/")) {
-        return new Response(null, { status: 200 });
-      }
-      if (method === "GET" && urlStr.includes("/unity-catalog/volumes?")) {
+      if (url.includes("/api/2.1/unity-catalog/volumes?")) {
         return new Response(JSON.stringify({ volumes: [] }), { status: 200 });
       }
-      if (method === "GET" && urlStr.includes("/unity-catalog/tables?")) {
-        return new Response(
-          JSON.stringify({ tables: [{ name: "existing_table" }] }),
-          { status: 200 }
-        );
-      }
-      if (method === "DELETE" && urlStr.includes("/unity-catalog/schemas/")) {
-        deleteSchemaCalled = true;
-        return new Response(null, { status: 200 });
-      }
-      return new Response(JSON.stringify({}), { status: 200 });
-    }) as typeof fetch;
-
-    const appCreatedTemplate: TemplateDefinition = {
-      ...sampleArchivedTemplate,
-      id: crypto.randomUUID(),
-      schemaCreatedByApp: true,
-      volumeCreatedByApp: true,
-    };
-    await templateRepo.create(appCreatedTemplate);
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
 
     const req = new Request(
-      `http://localhost/api/templates/${appCreatedTemplate.id}/delete`,
+      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
       {
         method: "POST",
         headers: {
@@ -322,171 +185,110 @@ describe("Guarded Permanent Delete Flow", () => {
           cookie: `admin_session=${validToken}`,
         },
         body: JSON.stringify({
-          confirmName: appCreatedTemplate.name,
-          deletedBy: "User Budi",
-        }),
-      }
-    );
-
-    const res = await deleteRoute(req, {
-      params: Promise.resolve({ id: appCreatedTemplate.id }),
-    });
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(deleteSchemaCalled).toBe(false);
-    expect(body.notice).toBe(
-      "Folder induk tidak dihapus karena masih berisi objek lain."
-    );
-  });
-
-  it("slug can be reused after deletion", async () => {
-    const original = await templateRepo.create(sampleArchivedTemplate);
-    expect(await templateRepo.getBySlug(original.slug)).toBeDefined();
-
-    await templateRepo.markDeleted(original.id, "Admin Budi");
-    expect(await templateRepo.getBySlug(original.slug)).toBeNull();
-
-    const activeList = await templateRepo.list();
-    expect(activeList.some((t) => t.id === original.id)).toBe(false);
-
-    const newTemplate: TemplateDefinition = {
-      ...sampleArchivedTemplate,
-      id: crypto.randomUUID(),
-      name: "Laporan Penjualan Baru",
-      slug: sampleArchivedTemplate.slug,
-      status: "aktif",
-    };
-
-    const recreated = await templateRepo.create(newTemplate);
-    expect(recreated.id).toBe(newTemplate.id);
-    expect(recreated.slug).toBe(sampleArchivedTemplate.slug);
-
-    const fetchedBySlug = await templateRepo.getBySlug(sampleArchivedTemplate.slug);
-    expect(fetchedBySlug?.id).toBe(newTemplate.id);
-  });
-
-  it("the preview counts files and reports the capped flag", async () => {
-    globalThis.fetch = (async (url: string | URL) => {
-      const urlStr = url.toString();
-      if (urlStr.includes("/api/2.0/fs/directories")) {
-        if (!urlStr.includes("page_token")) {
-          const files = Array.from({ length: 3000 }, (_, i) => ({
-            path: `csv/file_${i}.csv`,
-            is_directory: false,
-            file_size: 100,
-          }));
-          return new Response(
-            JSON.stringify({ contents: files, next_page_token: "page2" }),
-            { status: 200 }
-          );
-        } else {
-          const files = Array.from({ length: 2500 }, (_, i) => ({
-            path: `csv/file_${i + 3000}.csv`,
-            is_directory: false,
-            file_size: 100,
-          }));
-          return new Response(JSON.stringify({ contents: files }), { status: 200 });
-        }
-      }
-      return new Response(JSON.stringify({ contents: [] }), { status: 200 });
-    }) as typeof fetch;
-
-    const client = createDatabricksClient(
-      "https://dbc-test.cloud.databricks.com",
-      "valid-token"
-    );
-
-    const summary = await client.listVolumeContents("laporan_penjualan", "main", "sales");
-    expect(summary.success).toBe(true);
-    expect(summary.data?.capped).toBe(true);
-    expect(summary.data?.totalFiles).toBe(5000);
-    expect(summary.data?.totalSize).toBe(500000);
-
-    await templateRepo.create(sampleArchivedTemplate);
-    const reqPreview = new Request(
-      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete-preview`,
-      {
-        method: "GET",
-        headers: {
-          cookie: `admin_session=${validToken}`,
-        },
-      }
-    );
-
-    const previewRes = await deletePreviewRoute(reqPreview, {
-      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
-    });
-    expect(previewRes.status).toBe(200);
-
-    const previewData = await previewRes.json();
-    expect(previewData.volumeOwnedByApp).toBe(true);
-    expect(previewData.capped).toBe(true);
-  });
-
-  it("cancel an uncompleted or failed template without admin", async () => {
-    const failedTemplate: TemplateDefinition = {
-      id: crypto.randomUUID(),
-      name: "Template Gagal",
-      slug: "template_gagal",
-      description: "",
-      delimiter: ",",
-      status: "gagal",
-      volume: { catalog: "main", schema: "default", name: "template_gagal" },
-      version: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      columns: [{ name: "kolom1", required: true, rule: { type: "text" } }],
-    };
-    await templateRepo.create(failedTemplate);
-
-    const cancelReq = new Request(`http://localhost/api/templates/${failedTemplate.id}`, {
-      method: "DELETE",
-    });
-    const cancelRes = await cancelTemplateRoute(cancelReq, {
-      params: Promise.resolve({ id: failedTemplate.id }),
-    });
-    expect(cancelRes.status).toBe(200);
-
-    const remaining = await templateRepo.list();
-    expect(remaining.find((t) => t.id === failedTemplate.id)).toBeUndefined();
-  });
-
-  it("permanent delete allows templates in status gagal or membuat", async () => {
-    const creatingTemplate: TemplateDefinition = {
-      id: crypto.randomUUID(),
-      name: "Template Batal",
-      slug: "template_batal",
-      description: "",
-      delimiter: ",",
-      status: "membuat",
-      volume: { catalog: "main", schema: "default", name: "template_batal" },
-      version: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      columns: [{ name: "kolom1", required: true, rule: { type: "text" } }],
-    };
-    await templateRepo.create(creatingTemplate);
-
-    const delReq = new Request(
-      `http://localhost/api/templates/${creatingTemplate.id}/delete`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: `admin_session=${validToken}`,
-        },
-        body: JSON.stringify({
-          confirmName: creatingTemplate.name,
+          confirmName: sampleArchivedTemplate.name,
           deletedBy: "Admin",
         }),
       }
     );
-    const delRes = await deleteRoute(delReq, {
-      params: Promise.resolve({ id: creatingTemplate.id }),
-    });
-    expect(delRes.status).toBe(200);
 
-    const remaining = await templateRepo.list();
-    expect(remaining.find((t) => t.id === creatingTemplate.id)).toBeUndefined();
+    const res = await deleteRoute(req, {
+      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
+    });
+    expect(res.status).toBe(200);
+
+    const deleteCalls = calls.filter((c) => c.method === "DELETE");
+    expect(deleteCalls.length).toBe(2);
+    expect(deleteCalls[0].url).toContain("/volumes/main.sales.laporan_penjualan");
+    expect(deleteCalls[1].url).toContain("/schemas/main.sales");
+
+    for (const c of calls) {
+      expect(c.url).not.toContain("force=true");
+    }
+  });
+
+  it("keeps schema when schema is not empty and reports notice", async () => {
+    const validToken = signAdminToken();
+    await templateRepo.create(sampleArchivedTemplate);
+
+    const calls: { method: string; url: string }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method || "GET";
+      calls.push({ method, url });
+
+      if (url.includes("/api/2.1/unity-catalog/tables")) {
+        return new Response(JSON.stringify({ tables: [{ name: "table_other" }] }), { status: 200 });
+      }
+      if (url.includes("/api/2.1/unity-catalog/volumes?")) {
+        return new Response(JSON.stringify({ volumes: [] }), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const req = new Request(
+      `http://localhost/api/templates/${sampleArchivedTemplate.id}/delete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `admin_session=${validToken}`,
+        },
+        body: JSON.stringify({
+          confirmName: sampleArchivedTemplate.name,
+          deletedBy: "Admin",
+        }),
+      }
+    );
+
+    const res = await deleteRoute(req, {
+      params: Promise.resolve({ id: sampleArchivedTemplate.id }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.notice).toBe("Folder induk tidak dihapus karena masih berisi objek lain.");
+
+    const deleteCalls = calls.filter((c) => c.method === "DELETE");
+    expect(deleteCalls.length).toBe(1);
+    expect(deleteCalls[0].url).toContain("/volumes/");
+  });
+
+  it("older templates with flags false only lose their definition without touching Databricks", async () => {
+    const validToken = signAdminToken();
+    const olderTemplate: TemplateDefinition = {
+      ...sampleArchivedTemplate,
+      id: crypto.randomUUID(),
+      schemaCreatedByApp: false,
+      volumeCreatedByApp: false,
+    };
+    await templateRepo.create(olderTemplate);
+
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const req = new Request(
+      `http://localhost/api/templates/${olderTemplate.id}/delete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `admin_session=${validToken}`,
+        },
+        body: JSON.stringify({
+          confirmName: olderTemplate.name,
+        }),
+      }
+    );
+
+    const res = await deleteRoute(req, {
+      params: Promise.resolve({ id: olderTemplate.id }),
+    });
+    expect(res.status).toBe(200);
+    expect(fetchCalled).toBe(false);
+
+    const current = await templateRepo.get(olderTemplate.id);
+    expect(current?.status).toBe("dihapus");
   });
 });

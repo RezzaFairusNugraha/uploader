@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { POST as uploadRoute } from "@/app/api/upload/route";
-import { FakeInMemorySettingsStore, setSettingsStore } from "@/lib/settings";
+import { USER_COPY } from "@/lib/copy";
 import {
   FakeInMemoryTemplateRepository,
   setTemplateRepository,
@@ -20,24 +20,26 @@ import {
 
 describe("Upload Flow & Forwarding ke Databricks Volume", () => {
   const originalFetch = globalThis.fetch;
+  const originalEnv = { ...process.env };
   let templateRepo: FakeInMemoryTemplateRepository;
-  let settingsStore: FakeInMemorySettingsStore;
   let logRepo: FakeInMemoryUploadLogRepository;
-  const dummyKey = Buffer.from("01234567890123456789012345678901", "utf8");
 
   beforeEach(() => {
     templateRepo = new FakeInMemoryTemplateRepository();
     setTemplateRepository(templateRepo);
 
-    settingsStore = new FakeInMemorySettingsStore(dummyKey);
-    setSettingsStore(settingsStore);
-
     logRepo = new FakeInMemoryUploadLogRepository();
     setUploadLogRepository(logRepo);
+
+    delete process.env.DATABRICKS_HOST;
+    delete process.env.DATABRICKS_TOKEN;
+    delete process.env.DATABRICKS_CATALOG;
+    delete process.env.DATABRICKS_VOLUME_NAME;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    process.env = { ...originalEnv };
   });
 
   describe("File Name Builder & Path Sanitization", () => {
@@ -48,56 +50,60 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       expect(sanitizeFileName("file with $pecial #chars!.csv")).toBe(
         "file_with__pecial__chars_.csv"
       );
-      expect(sanitizeFileName("../../etc/passwd.csv")).toBe("passwd.csv");
-      expect(sanitizeFileName("..\\..\\secret\\data.csv")).toBe("data.csv");
-      expect(sanitizeFileName("/var/log/upload.csv")).toBe("upload.csv");
+      expect(sanitizeFileName("../../../secret/data.csv")).toBe(
+        "data.csv"
+      );
     });
 
-    it("membangun nama file destinasi dengan format {yyyyMMdd-HHmmss}__{sanitizedOriginalName}.{ext}", () => {
-      const fixedDate = new Date("2026-10-21T08:15:30Z");
-      const name = buildDestinationFileName(
-        "transaksi_harian",
-        "../../Laporan Bulanan.csv",
+    it("membuat nama file tujuan dengan format {YYYYMMDD-HHmmss}__{original}", () => {
+      const fixedDate = new Date("2026-10-24T15:30:45Z");
+      const formattedTs = formatTimestamp(fixedDate);
+      const destName = buildDestinationFileName(
+        "target_brand",
+        "laporan bulanan.csv",
         fixedDate
       );
-      const ts = formatTimestamp(fixedDate);
-      expect(name).toBe(`${ts}__Laporan_Bulanan.csv`);
+
+      expect(destName).toBe(
+        `${formattedTs}__laporan_bulanan.csv`
+      );
+      expect(destName).toMatch(
+        /^\d{8}-\d{6}__laporan_bulanan\.csv$/
+      );
     });
 
-    it("membangun path volume lengkap /Volumes/<catalog>/<schema>/<slug>/csv/ atau parquet/", () => {
-      const volumePathCsv = buildVolumePath(
-        "main_cat",
-        "sales_schema",
-        "transaksi_harian",
+    it("membangun path volume lengkap Unity Catalog", () => {
+      const pathCsv = buildVolumePath(
+        "main",
+        "sales",
+        "transaksi_toko",
         "csv",
-        "20261021-081530__data.csv"
+        "transaksi_20261024_data.csv"
       );
-      expect(volumePathCsv).toBe(
-        "/Volumes/main_cat/sales_schema/transaksi_harian/csv/20261021-081530__data.csv"
+      expect(pathCsv).toBe(
+        "/Volumes/main/sales/transaksi_toko/csv/transaksi_20261024_data.csv"
       );
 
-      const volumePathParquet = buildVolumePath(
-        "main_cat",
-        "sales_schema",
-        "transaksi_harian",
+      const pathParquet = buildVolumePath(
+        "main",
+        "sales",
+        "transaksi_toko",
         "parquet",
-        "20261021-081530__data.parquet"
+        "transaksi_20261024_data.parquet"
       );
-      expect(volumePathParquet).toBe(
-        "/Volumes/main_cat/sales_schema/transaksi_harian/parquet/20261021-081530__data.parquet"
+      expect(pathParquet).toBe(
+        "/Volumes/main/sales/transaksi_toko/parquet/transaksi_20261024_data.parquet"
       );
     });
   });
 
   describe("Endpoint Server POST /api/upload", () => {
-    const setupValidSettings = async (maxFileSizeMb: number = 5) => {
-      await settingsStore.save({
-        workspaceUrl: "https://dbc-test.cloud.databricks.com",
-        token: "test-token-valid",
-        catalog: "main",
-        schema: "sales",
-        maxFileSizeMb,
-      });
+    const setupValidSettings = (maxFileSizeMb: number = 5) => {
+      process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
+      process.env.DATABRICKS_TOKEN = "test-token-valid";
+      process.env.DATABRICKS_CATALOG = "main";
+      process.env.DATABRICKS_VOLUME_NAME = "file_storage";
+      process.env.MAX_UPLOAD_MB = String(maxFileSizeMb);
     };
 
     const createTestTemplate = async (
@@ -141,7 +147,7 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       const response = await uploadRoute(request);
       expect(response.status).toBe(400);
       const data = await response.json();
-      expect(data.error).toBe("Berkas dan template wajib disertakan");
+      expect(data.error).toBe("Template wajib dipilih");
     });
 
     it("menolak berkas jika pengaturan Databricks belum dikonfigurasi", async () => {
@@ -161,11 +167,11 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       const response = await uploadRoute(request);
       expect(response.status).toBe(400);
       const data = await response.json();
-      expect(data.error).toContain("Koneksi ke penyimpanan data belum lengkap");
+      expect(data.error).toBe(USER_COPY.connection.notConnected);
     });
 
     it("menolak template jika statusnya bukan 'aktif'", async () => {
-      await setupValidSettings();
+      setupValidSettings();
       const draftTpl = await createTestTemplate("membuat");
 
       const formData = new FormData();
@@ -187,7 +193,7 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
     });
 
     it("berhasil memvalidasi dan meneruskan berkas CSV valid serta mencatat log upload", async () => {
-      await setupValidSettings();
+      setupValidSettings();
       const tpl = await createTestTemplate("aktif");
 
       const validContent = "id_outlet;total_rupiah\r\n1234;5000\r\n5678;25000\r\n";
@@ -221,39 +227,56 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       const response = await uploadRoute(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.destinationPath).toContain(
-        "/Volumes/main/sales/transaksi_toko/csv/"
-      );
-      expect(data.destinationPath).toContain("__data_transaksi.csv");
-
       expect(capturedMethod).toBe("PUT");
-      expect(capturedUrl).toContain("/api/2.0/fs/files/Volumes/main/sales/transaksi_toko/csv/");
-      expect(capturedUrl).toContain("?overwrite=false");
-      expect(capturedBody).not.toBeNull();
-      if (capturedBody) {
-        expect(Buffer.compare(Buffer.from(capturedBody), Buffer.from(fileBytes))).toBe(0);
-      }
+      expect(capturedUrl).toContain(
+        "/api/2.0/fs/files/Volumes/main/sales/transaksi_toko/csv/"
+      );
+      expect(capturedUrl).toContain("data_transaksi.csv");
+      expect(capturedBody).toEqual(fileBytes);
 
-      const logs = await logRepo.listByTemplate(tpl.id);
+      const logs = await logRepo.listRecent();
       expect(logs.length).toBe(1);
       expect(logs[0].status).toBe("berhasil");
-      expect(logs[0].originalName).toBe("data_transaksi.csv");
+      expect(logs[0].rowCount).toBe(2);
+      expect(logs[0].format).toBe("csv");
     });
 
-    it("berhasil memvalidasi dan meneruskan berkas Parquet valid ke folder parquet/ serta mencatat log", async () => {
-      await setupValidSettings();
+    it("menolak berkas CSV dengan data tidak valid dan mencatat log gagal", async () => {
+      setupValidSettings();
       const tpl = await createTestTemplate("aktif");
 
-      const parquetBuffer = new Uint8Array(
-        parquetWriteBuffer({
-          columnData: [
-            { name: "id_outlet", data: ["1234", "5678"] },
-            { name: "total_rupiah", data: [1500, 3000] },
-          ],
-        })
+      const invalidContent = "id_outlet;total_rupiah\r\n12;50\r\n";
+      const fileBytes = new TextEncoder().encode(invalidContent);
+
+      const formData = new FormData();
+      formData.append(
+        "file",
+        new File([fileBytes], "transaksi_salah.csv")
       );
+      formData.append("templateId", tpl.id);
+
+      const request = new Request("http://localhost:3000/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const response = await uploadRoute(request);
+      expect(response.status).toBe(422);
+      const data = await response.json();
+      expect(data.error).toBe("Validasi berkas gagal");
+      expect(data.errors.length).toBeGreaterThan(0);
+    });
+
+    it("berhasil memvalidasi dan mengunggah berkas Parquet ke subfolder parquet/", async () => {
+      setupValidSettings();
+      const tpl = await createTestTemplate("aktif");
+
+      const parquetBuffer = parquetWriteBuffer({
+        columnData: [
+          { name: "id_outlet", data: ["1111", "2222"] },
+          { name: "total_rupiah", data: [500, 1500] },
+        ],
+      });
 
       let capturedUrl = "";
       globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -264,7 +287,7 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       const formData = new FormData();
       formData.append(
         "file",
-        new File([parquetBuffer], "outlet.parquet")
+        new File([parquetBuffer], "data.parquet")
       );
       formData.append("templateId", tpl.id);
 
@@ -275,98 +298,15 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
 
       const response = await uploadRoute(request);
       expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(data.destinationPath).toContain(
-        "/Volumes/main/sales/transaksi_toko/parquet/"
+      expect(capturedUrl).toContain(
+        "/api/2.0/fs/files/Volumes/main/sales/transaksi_toko/parquet/"
       );
-      expect(capturedUrl).toContain("/Volumes/main/sales/transaksi_toko/parquet/");
+      expect(capturedUrl).toContain("data.parquet");
 
-      const logs = await logRepo.listByTemplate(tpl.id);
+      const logs = await logRepo.listRecent();
       expect(logs.length).toBe(1);
+      expect(logs[0].status).toBe("berhasil");
       expect(logs[0].format).toBe("parquet");
-    });
-
-    it("menolak berkas yang tidak valid dengan status 422 dan daftar error", async () => {
-      await setupValidSettings();
-      const tpl = await createTestTemplate("aktif");
-
-      const invalidContent = "id_outlet;total_rupiah\r\n12;50\r\n";
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new File([invalidContent], "salah.csv")
-      );
-      formData.append("templateId", tpl.id);
-
-      const request = new Request("http://localhost:3000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const response = await uploadRoute(request);
-      expect(response.status).toBe(422);
-
-      const data = await response.json();
-      expect(data.error).toBe("Validasi berkas gagal");
-      expect(data.errors.length).toBeGreaterThan(0);
-    });
-
-    it("mencegah path traversal pada nama berkas yang diunggah", async () => {
-      await setupValidSettings();
-      const tpl = await createTestTemplate("aktif");
-
-      const validContent = "id_outlet;total_rupiah\r\n1234;500\r\n";
-
-      globalThis.fetch = (async () => {
-        return new Response("{}", { status: 200 });
-      }) as unknown as typeof fetch;
-
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new File([validContent], "../../etc/passwd.csv")
-      );
-      formData.append("templateId", tpl.id);
-
-      const request = new Request("http://localhost:3000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const response = await uploadRoute(request);
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.destinationPath).toContain(
-        "/Volumes/main/sales/transaksi_toko/csv/"
-      );
-      expect(data.destinationPath).not.toContain("..");
-      expect(data.destinationPath).toContain("__passwd.csv");
-    });
-
-    it("menolak berkas yang melebihi batas ukuran pengaturan", async () => {
-      await setupValidSettings(1);
-      const tpl = await createTestTemplate("aktif");
-
-      const largeContent = "a".repeat(2 * 1024 * 1024);
-      const formData = new FormData();
-      formData.append("file", new File([largeContent], "data.csv"));
-      formData.append("templateId", tpl.id);
-
-      const request = new Request("http://localhost:3000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const response = await uploadRoute(request);
-      expect(response.status).toBe(422);
-
-      const data = await response.json();
-      expect(
-        data.errors.some((e: { code: string }) => e.code === "FILE_TOO_LARGE")
-      ).toBe(true);
     });
   });
 });

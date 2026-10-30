@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifyAdminToken } from "@/lib/adminAuth";
+import { ADMIN_COOKIE_NAME, verifyAdminToken } from "@/lib/adminAuth";
 import { createDatabricksClient } from "@/lib/databricks";
-import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
 import { templateVersionRepository } from "@/lib/templates/versions";
+import { getDatabricksConfig } from "@/platform/config";
 
 export async function POST(
   request: Request,
@@ -13,12 +13,12 @@ export async function POST(
   let session: string | undefined;
   try {
     const cookieStore = await cookies();
-    session = cookieStore.get("admin_session")?.value;
+    session = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
   } catch {
   }
   if (!session) {
     const cookieHeader = request.headers.get("cookie") || "";
-    const match = cookieHeader.match(/admin_session=([^;]+)/);
+    const match = cookieHeader.match(new RegExp(`${ADMIN_COOKIE_NAME}=([^;]+)`));
     if (match) {
       session = match[1];
     }
@@ -26,7 +26,7 @@ export async function POST(
 
   if (!session || !verifyAdminToken(session)) {
     return NextResponse.json(
-      { error: "Sesi admin diperlukan untuk menghapus template." },
+      { error: "Sesi admin diperlukan untuk menghapus template.", requiresAdminAuth: true },
       { status: 401 }
     );
   }
@@ -43,7 +43,6 @@ export async function POST(
   if (
     template.status !== "diarsipkan" &&
     template.status !== "draf" &&
-    template.status !== "draf_deteksi" &&
     template.status !== "gagal" &&
     template.status !== "membuat"
   ) {
@@ -76,57 +75,46 @@ export async function POST(
 
   let schemaNotice: string | undefined;
 
-  try {
-    const conn = await getConnectionState();
-    if (conn.ready && template.volume?.catalog && template.volume?.schema) {
-      const settings = await readDecryptedSettings();
-      if (settings?.workspaceUrl && settings?.token) {
-        const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+  const dbConfig = getDatabricksConfig();
+  if (dbConfig && template.volume?.catalog && template.volume?.schema) {
+    try {
+      const client = createDatabricksClient(dbConfig.host, dbConfig.token);
 
-        if (template.volumeCreatedByApp && template.volume.name) {
-          const volumeFullName = `${template.volume.catalog}.${template.volume.schema}.${template.volume.name}`;
-          await client.deleteVolume(volumeFullName);
-        }
+      if (template.volumeCreatedByApp && template.volume.name) {
+        const volumeFullName = `${template.volume.catalog}.${template.volume.schema}.${template.volume.name}`;
+        await client.deleteVolume(volumeFullName);
+      }
 
-        if (template.schemaCreatedByApp) {
-          const isEmpty = await client.isSchemaEmpty(
-            template.volume.catalog,
-            template.volume.schema
-          );
-          if (isEmpty) {
-            const schemaFullName = `${template.volume.catalog}.${template.volume.schema}`;
-            await client.deleteSchema(schemaFullName);
-          } else {
-            schemaNotice = "Folder induk tidak dihapus karena masih berisi objek lain.";
-          }
+      if (template.schemaCreatedByApp) {
+        const isEmpty = await client.isSchemaEmpty(
+          template.volume.catalog,
+          template.volume.schema
+        );
+        if (isEmpty) {
+          const schemaFullName = `${template.volume.catalog}.${template.volume.schema}`;
+          await client.deleteSchema(schemaFullName);
+        } else {
+          schemaNotice = "Folder induk tidak dihapus karena masih berisi objek lain.";
         }
       }
+    } catch {
     }
-  } catch {
   }
 
-  let changeSummary = `Template ${template.name} dihapus permanen.`;
-  if (schemaNotice) {
-    changeSummary += ` ${schemaNotice}`;
-  } else if (!template.volumeCreatedByApp) {
-    changeSummary += " Folder penyimpanan tidak ikut dihapus karena tidak dibuat oleh aplikasi.";
-  }
-
-  const deleted = await templateRepository.markDeleted(id, finalDeletedBy);
   await templateVersionRepository.add({
-    templateId: id,
-    version: deleted.version,
-    snapshot: deleted,
-    changeSummary,
+    templateId: template.id,
+    version: template.version,
+    snapshot: template,
+    changeSummary: `Template dihapus permanen oleh ${finalDeletedBy}`,
     isBreaking: true,
     changedBy: finalDeletedBy,
   });
 
+  await templateRepository.markDeleted(id, finalDeletedBy);
+
   return NextResponse.json({
     success: true,
-    message: schemaNotice
-      ? `Template ${template.name} dihapus permanen. ${schemaNotice}`
-      : `Template ${template.name} dihapus permanen`,
+    message: "Template berhasil dihapus permanen.",
     notice: schemaNotice,
   });
 }

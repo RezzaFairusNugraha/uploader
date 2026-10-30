@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { verifyAdminToken } from "@/lib/adminAuth";
+import { ADMIN_COOKIE_NAME, verifyAdminToken } from "@/lib/adminAuth";
 import { createDatabricksClient } from "@/lib/databricks";
-import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { templateRepository } from "@/lib/templates/repository";
 import { uploadLogRepository } from "@/lib/upload/log";
+import { getDatabricksConfig } from "@/platform/config";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +15,12 @@ export async function GET(
   let session: string | undefined;
   try {
     const cookieStore = await cookies();
-    session = cookieStore.get("admin_session")?.value;
+    session = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
   } catch {
   }
   if (!session) {
     const cookieHeader = request.headers.get("cookie") || "";
-    const match = cookieHeader.match(/admin_session=([^;]+)/);
+    const match = cookieHeader.match(new RegExp(`${ADMIN_COOKIE_NAME}=([^;]+)`));
     if (match) {
       session = match[1];
     }
@@ -66,73 +66,56 @@ export async function GET(
   const toRemove: string[] = ["Definisi template"];
   const toKeep: string[] = [];
 
-  try {
-    const conn = await getConnectionState();
-    if (conn.ready && template.volume?.name) {
-      const settings = await readDecryptedSettings();
-      if (settings?.workspaceUrl && settings?.token) {
-        const client = createDatabricksClient(settings.workspaceUrl, settings.token);
-        const volRes = await client.listVolumeContents(
-          template.volume.name,
-          template.volume.catalog,
-          template.volume.schema,
-          template.csvFolder,
-          template.parquetFolder
+  const dbConfig = getDatabricksConfig();
+  if (dbConfig && template.volume?.name) {
+    try {
+      const client = createDatabricksClient(dbConfig.host, dbConfig.token);
+      const volRes = await client.listVolumeContents(
+        template.volume.name,
+        template.volume.catalog,
+        template.volume.schema,
+        "csv",
+        "parquet"
+      );
+      if (volRes.data) {
+        summary = volRes.data;
+      }
+
+      if (template.volumeCreatedByApp) {
+        toRemove.push(`Folder penyimpanan '${template.volume.name}'`);
+      } else {
+        toKeep.push(`Folder penyimpanan '${template.volume.name}' (tidak dibuat oleh aplikasi)`);
+      }
+
+      if (template.schemaCreatedByApp && template.volume.catalog && template.volume.schema) {
+        const vols = await client.listVolumes(template.volume.catalog, template.volume.schema);
+        const otherVolumes = (vols.data?.volumes || []).filter(
+          (v) => v.name !== template.volume?.name
         );
-        if (volRes.data) {
-          summary = volRes.data;
-        }
-
-        if (template.volumeCreatedByApp) {
-          toRemove.push(`Folder penyimpanan '${template.volume.name}'`);
+        const tables = await client.listTables(template.volume.catalog, template.volume.schema);
+        const tableCount = tables.data?.tables?.length || 0;
+        if (otherVolumes.length > 0 || tableCount > 0) {
+          toKeep.push(`Folder induk '${template.volume.schema}' (masih berisi objek lain)`);
         } else {
-          toKeep.push(`Folder penyimpanan '${template.volume.name}' (tidak dibuat oleh aplikasi)`);
+          toRemove.push(`Folder induk '${template.volume.schema}'`);
         }
-
-        if (template.schemaCreatedByApp && template.volume.catalog && template.volume.schema) {
-          const vols = await client.listVolumes(template.volume.catalog, template.volume.schema);
-          const otherVolumes = (vols.data?.volumes || []).filter(
-            (v) => v.name !== template.volume?.name
-          );
-          const tables = await client.listTables(template.volume.catalog, template.volume.schema);
-          const tableCount = tables.data?.tables?.length || 0;
-          if (otherVolumes.length > 0 || tableCount > 0) {
-            toKeep.push(`Folder induk '${template.volume.schema}' (masih berisi objek lain)`);
-          } else {
-            toRemove.push(`Folder induk '${template.volume.schema}'`);
-          }
-        } else if (template.volume.schema) {
-          toKeep.push(`Folder induk '${template.volume.schema}' (tidak dibuat oleh aplikasi)`);
-        }
+      } else if (template.volume.schema) {
+        toKeep.push(`Folder induk '${template.volume.schema}' (tidak dibuat oleh aplikasi)`);
       }
-    } else {
-      if (template.volume?.name) {
-        if (template.volumeCreatedByApp) {
-          toRemove.push(`Folder penyimpanan '${template.volume.name}'`);
-        } else {
-          toKeep.push(`Folder penyimpanan '${template.volume.name}' (tidak dibuat oleh aplikasi)`);
-        }
-      }
-      if (template.volume?.schema) {
-        if (template.schemaCreatedByApp) {
-          toRemove.push(`Folder induk '${template.volume.schema}' (jika kosong)`);
-        } else {
-          toKeep.push(`Folder induk '${template.volume.schema}' (tidak dibuat oleh aplikasi)`);
-        }
-      }
+    } catch {
     }
-  } catch {
   }
 
   return NextResponse.json({
+    name: template.name,
+    slug: template.slug,
     csvFiles: summary.csvFiles,
     parquetFiles: summary.parquetFiles,
+    totalFiles: summary.csvFiles + summary.parquetFiles,
     totalSize: summary.totalSize,
-    capped: summary.capped,
     lastUploadAt,
     uploadsLast7Days,
-    volumeOwnedByApp: template.volumeCreatedByApp ?? false,
-    schemaOwnedByApp: template.schemaCreatedByApp ?? false,
+    capped: summary.capped,
     toRemove,
     toKeep,
   });

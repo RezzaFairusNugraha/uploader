@@ -11,7 +11,6 @@ const navItems = [
   { href: "/template", label: USER_COPY.nav.template },
   { href: "/riwayat", label: USER_COPY.nav.riwayat },
   { href: "/panduan", label: USER_COPY.nav.panduan },
-  { href: "/pengaturan", label: USER_COPY.nav.koneksi },
 ];
 
 type ConnectionStatus = "unconfigured" | "connected" | "failed";

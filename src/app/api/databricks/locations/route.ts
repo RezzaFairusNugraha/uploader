@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
 import { createDatabricksClient } from "@/lib/databricks";
-import { readDecryptedSettings } from "@/lib/settings";
+import { USER_COPY } from "@/lib/copy";
+import { getDatabricksConfig } from "@/platform/config";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const settings = await readDecryptedSettings();
-    if (!settings || !settings.workspaceUrl || !settings.token) {
+    const dbConfig = getDatabricksConfig();
+    if (!dbConfig) {
       return NextResponse.json(
-        { error: "Koneksi Databricks belum dikonfigurasi. Hubungi admin." },
+        { error: USER_COPY.connection.notConnected },
         { status: 400 }
       );
     }
 
-    const client = createDatabricksClient(settings.workspaceUrl, settings.token);
+    const client = createDatabricksClient(dbConfig.host, dbConfig.token);
     const catalogParam = searchParams.get("catalog");
 
     let catalogs: string[] = [];
@@ -23,11 +24,11 @@ export async function GET(request: Request) {
     if (catRes.success && catRes.data?.catalogs) {
       catalogs = catRes.data.catalogs.map((c) => c.name);
     }
-    if (settings.catalog && !catalogs.includes(settings.catalog)) {
-      catalogs.unshift(settings.catalog);
+    if (dbConfig.catalog && !catalogs.includes(dbConfig.catalog)) {
+      catalogs.unshift(dbConfig.catalog);
     }
 
-    const selectedCatalog = catalogParam || settings.catalog || catalogs[0] || "";
+    const selectedCatalog = catalogParam || dbConfig.catalog || catalogs[0] || "";
     let schemas: string[] = [];
 
     if (selectedCatalog) {
@@ -35,20 +36,13 @@ export async function GET(request: Request) {
       if (schRes.success && schRes.data?.schemas) {
         schemas = schRes.data.schemas.map((s) => s.name);
       }
-      if (
-        selectedCatalog === settings.catalog &&
-        settings.schema &&
-        !schemas.includes(settings.schema)
-      ) {
-        schemas.unshift(settings.schema);
-      }
     }
 
     return NextResponse.json({
       catalogs,
       schemas,
-      defaultCatalog: settings.catalog,
-      defaultSchema: settings.schema,
+      defaultCatalog: dbConfig.catalog,
+      defaultSchema: "",
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan";

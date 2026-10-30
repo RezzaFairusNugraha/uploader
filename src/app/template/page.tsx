@@ -28,7 +28,6 @@ import {
   formatTemplateLastUpload,
   GLOSSARY,
 } from "@/lib/copy";
-import { syncVolumesLoop, type SyncProgress } from "@/lib/templates/sync";
 import type { TemplateDefinition, TemplateStatus } from "@/lib/templates";
 
 interface TemplateWithMeta extends TemplateDefinition {
@@ -70,12 +69,6 @@ const statusBadgeConfig: Record<
     bgClass: "bg-slate-100",
     textClass: "text-slate-700 border-slate-200",
   },
-  draf_deteksi: {
-    label: GLOSSARY.status.draf_deteksi,
-    dotClass: "bg-amber-500",
-    bgClass: "bg-amber-50",
-    textClass: "text-amber-800 border-amber-200",
-  },
   dihapus: {
     label: "Dihapus",
     dotClass: "bg-rose-500",
@@ -89,9 +82,6 @@ export default function TemplatePage() {
   const [templates, setTemplates] = useState<TemplateWithMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
-  const [checkProgress, setCheckProgress] = useState<SyncProgress | null>(null);
-  const [isPreparingAll, setIsPreparingAll] = useState(false);
 
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -128,7 +118,7 @@ export default function TemplatePage() {
   const menuTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
-    fetch("/api/admin/auth")
+    fetch("/api/admin/login")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && data.isAuthenticated) {
@@ -389,7 +379,7 @@ export default function TemplatePage() {
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const res = await fetch("/api/admin/auth", {
+      const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: adminPasswordInput }),
@@ -480,49 +470,6 @@ export default function TemplatePage() {
     });
   }, [templates, statusFilter, searchQuery]);
 
-  const flaggedCount = useMemo(
-    () => templates.filter((t) => t.needsCheck).length,
-    [templates]
-  );
-
-  const handleCheckAllTemplates = async () => {
-    setIsCheckingConnection(true);
-    setCheckProgress(null);
-    try {
-      const targets = templates.filter(
-        (t) => t.needsCheck || t.visibility === "tidak_terlihat"
-      );
-      if (targets.length === 0) {
-        notify.success("Semua template sudah dalam kondisi baik.");
-        return;
-      }
-      await syncVolumesLoop(
-        targets,
-        async (tpl) => {
-          const res = await fetch("/api/templates/check-connection", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ templateId: tpl.id }),
-          });
-          return res.json();
-        },
-        (progress) => {
-          setCheckProgress(progress);
-        }
-      );
-      notify.success(
-        `Pemeriksaan selesai. ${targets.length} template diperiksa.`
-      );
-      await loadData();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
-      notify.error(msg);
-    } finally {
-      setIsCheckingConnection(false);
-      setCheckProgress(null);
-    }
-  };
-
   const handlePrepareVolume = async (tpl: TemplateWithMeta) => {
     if (pendingActionId === tpl.id) return;
     setPendingActionId(tpl.id);
@@ -564,35 +511,6 @@ export default function TemplatePage() {
     }
   };
 
-  const handlePrepareAllVolumes = async () => {
-    const toPrepare = templates.filter(
-      (t) => t.needsCheck || t.visibility === "tidak_terlihat"
-    );
-    if (toPrepare.length === 0) return;
-    setIsPreparingAll(true);
-    let successCount = 0;
-    try {
-      for (const tpl of toPrepare) {
-        const res = await fetch(`/api/templates/${tpl.id}/provision`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reuseExistingVolume: true }),
-        });
-        if (res.ok) {
-          successCount++;
-        }
-      }
-      await loadData();
-      notify.success(
-        `Berhasil menyiapkan ${successCount} folder penyimpanan di Databricks`
-      );
-    } catch {
-      notify.error("Terjadi kendala saat menyiapkan sebagian folder");
-    } finally {
-      setIsPreparingAll(false);
-    }
-  };
-
   return (
     <div className="space-y-6 text-base max-w-4xl mx-auto">
       <div className="pb-4 border-b border-zinc-200/80 space-y-4">
@@ -615,15 +533,6 @@ export default function TemplatePage() {
               <span>Buat template</span>
             </Button>
           </Link>
-          <Link href="/template/baru?mode=sync">
-            <Button
-              variant="secondary"
-              className="whitespace-nowrap gap-2 min-h-[44px]"
-            >
-              <RefreshCw className="w-4 h-4 shrink-0" />
-              <span>Sinkronkan dengan Databricks</span>
-            </Button>
-          </Link>
           <Link href="/template/perubahan">
             <Button
               variant="secondary"
@@ -635,51 +544,6 @@ export default function TemplatePage() {
           </Link>
         </div>
       </div>
-
-      {flaggedCount > 0 && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span className="font-medium">
-              Koneksi diganti. {flaggedCount} template perlu diperiksa.
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={isCheckingConnection || isPreparingAll}
-              onClick={handleCheckAllTemplates}
-              className="whitespace-nowrap"
-            >
-              {isCheckingConnection ? "Memeriksa..." : "Periksa koneksi"}
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              disabled={isCheckingConnection || isPreparingAll}
-              onClick={handlePrepareAllVolumes}
-              className="whitespace-nowrap"
-            >
-              {isPreparingAll ? "Menyiapkan..." : "Siapkan semua folder"}
-            </Button>
-          </div>
-          {checkProgress && (
-            <div className="w-full space-y-1 mt-2">
-              <div className="flex justify-between text-sm text-amber-800">
-                <span>{checkProgress.label}</span>
-                <span>{Math.round((checkProgress.current / checkProgress.total) * 100)}%</span>
-              </div>
-              <div className="w-full h-2 bg-amber-200/70 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-600 transition-all duration-300"
-                  style={{ width: `${(checkProgress.current / checkProgress.total) * 100}%` }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {templates.length > 6 && (
         <div className="relative">
@@ -1104,25 +968,9 @@ function TemplateCard({
   onCancelFailed,
   triggerRef,
 }: TemplateCardProps) {
-  let badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
-  if (tpl.needsCheck) {
-    badge = {
-      label: "Perlu diperiksa koneksi",
-      dotClass: "bg-amber-500",
-      bgClass: "bg-amber-50",
-      textClass: "text-amber-800 border-amber-200",
-    };
-  } else if (tpl.visibility === "tidak_terlihat") {
-    badge = {
-      label: "Folder tidak terlihat oleh koneksi saat ini",
-      dotClass: "bg-amber-500",
-      bgClass: "bg-amber-50",
-      textClass: "text-amber-800 border-amber-200",
-    };
-  }
-  const isReady = tpl.status === "aktif" && !tpl.needsCheck;
+  const badge = statusBadgeConfig[tpl.status] || statusBadgeConfig.membuat;
+  const isReady = tpl.status === "aktif";
   const isArchived = tpl.status === "diarsipkan";
-  const isDraftDetection = tpl.status === "draf_deteksi";
   const menuId = useId();
 
   const menuContainerRef = useRef<HTMLDivElement>(null);
@@ -1219,32 +1067,7 @@ function TemplateCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5 pt-1">
-        {isDraftDetection ? (
-          <Link href={`/template/baru?id=${tpl.id}&action=inspect`} className="w-full sm:w-auto">
-            <Button
-              variant="primary"
-              disabled={isPending}
-              className="w-full sm:w-auto whitespace-nowrap min-h-[44px]"
-            >
-              Periksa dan aktifkan
-            </Button>
-          </Link>
-        ) : tpl.needsCheck || tpl.visibility === "tidak_terlihat" ? (
-          <Button
-            type="button"
-            variant="primary"
-            disabled={isPending}
-            onClick={onPrepareVolume}
-            className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2"
-          >
-            {isPending ? (
-              <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin shrink-0" />
-            ) : (
-              <FolderPlus className="w-4 h-4 shrink-0" />
-            )}
-            <span>Siapkan folder di Databricks</span>
-          </Button>
-        ) : isReady ? (
+        {isReady ? (
           <Link href={`/?template=${tpl.id}`} className="w-full sm:w-auto">
             <Button
               variant="primary"
@@ -1264,7 +1087,11 @@ function TemplateCard({
               onClick={onPrepareVolume}
               className="w-full sm:w-auto whitespace-nowrap min-h-[44px] gap-2"
             >
-              <RefreshCw className="w-4 h-4 shrink-0" />
+              {isPending ? (
+                <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin shrink-0" />
+              ) : (
+                <RefreshCw className="w-4 h-4 shrink-0" />
+              )}
               <span>Coba siapkan lagi</span>
             </Button>
             {onCancelFailed && (
@@ -1373,37 +1200,10 @@ function TemplateCard({
                 <Archive className="w-4 h-4 text-zinc-400 shrink-0" />
                 <span>{isArchived ? "Aktifkan kembali" : "Nonaktifkan"}</span>
               </button>
-              {(tpl.needsCheck || tpl.visibility === "tidak_terlihat") && (
-                <>
-                  <div className="border-t border-zinc-100 my-1" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onCloseMenu();
-                      onPrepareVolume();
-                    }}
-                    className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-indigo-700 hover:bg-indigo-50 transition-colors cursor-pointer flex items-center gap-2.5"
-                  >
-                    <FolderPlus className="w-4 h-4 text-indigo-500 shrink-0" />
-                    <span>Siapkan folder di Databricks</span>
-                  </button>
-                  <Link
-                    href={`/template/baru?mode=sync&adopt=${tpl.id}`}
-                    role="menuitem"
-                    onClick={onCloseMenu}
-                    className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"
-                  >
-                    <FolderCheck className="w-4 h-4 text-zinc-400 shrink-0" />
-                    <span>Pakai folder yang sudah ada</span>
-                  </Link>
-                </>
-              )}
               {(tpl.status === "diarsipkan" ||
                 tpl.status === "draf" ||
                 tpl.status === "gagal" ||
-                tpl.status === "membuat" ||
-                tpl.status === "draf_deteksi") && (
+                tpl.status === "membuat") && (
                 <>
                   <div className="border-t border-zinc-100 my-1" />
                   {isAdmin ? (

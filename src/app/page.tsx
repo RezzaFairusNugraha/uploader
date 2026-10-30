@@ -16,7 +16,6 @@ import Callout from "@/components/Callout";
 import PageHeader from "@/components/PageHeader";
 import { resolveSelectedTemplateId, USER_COPY } from "@/lib/copy";
 import { notify } from "@/lib/notify";
-import type { ConnectionState, MaskedSettings } from "@/lib/settings";
 import type { TemplateDefinition } from "@/lib/templates";
 import {
   buildDestinationFileName,
@@ -47,9 +46,7 @@ export default function UploadPage() {
     useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [settings, setSettings] = useState<MaskedSettings | null>(null);
   const [serverValidation, setServerValidation] = useState<"full" | "light">("full");
-  const [connectionState, setConnectionState] = useState<ConnectionState | null>(null);
   const [isSettingsConfigured, setIsSettingsConfigured] = useState(true);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
@@ -87,22 +84,13 @@ export default function UploadPage() {
       })
       .catch(() => {});
 
-    fetch("/api/settings")
+    fetch("/api/status")
       .then((res) => res.json())
       .then((data) => {
-        if (data?.connection) {
-          setConnectionState(data.connection);
-          setIsSettingsConfigured(Boolean(data.configured));
-        } else if (data?.settings) {
-          setIsSettingsConfigured(Boolean(data.configured));
+        if (data) {
+          setIsSettingsConfigured(Boolean(data.databricks && data.database));
         } else {
           setIsSettingsConfigured(false);
-        }
-        if (data?.settings) {
-          setSettings(data.settings);
-        }
-        if (data?.limits?.serverValidation) {
-          setServerValidation(data.limits.serverValidation);
         }
       })
       .catch(() => {
@@ -334,14 +322,10 @@ export default function UploadPage() {
 
       {!isSettingsConfigured && (
         <Callout
-          type="warning"
+          type="error"
           title="Koneksi penyimpanan belum siap"
         >
-          {connectionState?.error === "database_tidak_terjangkau"
-            ? USER_COPY.connection.dbUnavailable
-            : connectionState?.missing && connectionState.missing.length > 0
-            ? USER_COPY.connection.buildIncompleteMessage(connectionState.missing)
-            : "Koneksi ke penyimpanan data belum lengkap. Minta admin melengkapinya di halaman Koneksi Databricks."}
+          {USER_COPY.connection.notConnected}
         </Callout>
       )}
 
@@ -465,8 +449,7 @@ export default function UploadPage() {
                 Pilih atau tarik berkas ke kotak ini
               </div>
               <div className="text-sm text-zinc-500">
-                Format yang didukung: .csv atau .parquet (maksimal{" "}
-                {settings?.maxFileSizeMb ?? 100} MB)
+                Format yang didukung: .csv atau .parquet (maksimal 100 MB)
               </div>
             </div>
           </div>

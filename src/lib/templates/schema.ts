@@ -2,7 +2,6 @@ import { z } from "zod";
 
 export const TemplateStatusSchema = z.enum([
   "draf",
-  "draf_deteksi",
   "membuat",
   "aktif",
   "gagal",
@@ -130,12 +129,7 @@ export const TemplateDefinitionSchema = z
     volume: VolumeConfigSchema,
     schemaCreatedByApp: z.boolean().default(false),
     volumeCreatedByApp: z.boolean().default(false),
-    csvFolder: z.string().default("csv"),
-    parquetFolder: z.string().default("parquet"),
     workspaceHost: z.string().nullable().optional(),
-    needsCheck: z.boolean().default(false),
-    visibility: z.enum(["terlihat", "tidak_terlihat"]).nullable().optional(),
-    visibilityCheckedAt: z.string().datetime().nullable().optional(),
     deletedAt: z.string().datetime().nullable().optional(),
     deletedBy: z.string().nullable().optional(),
     version: z.number().int().min(1).default(1),
