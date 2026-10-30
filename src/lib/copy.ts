@@ -34,7 +34,7 @@ export function mapFriendlyError(err: unknown): FriendlyError {
   if (message.includes("401") || message.includes("token")) {
     return {
       judul: "Kunci akses tidak sah atau kedaluwarsa",
-      saran: "Periksa kembali pengaturan koneksi Databricks di menu admin atau hubungi pengelola sistem.",
+      saran: "Kunci akses penyimpanan perlu diperbarui. Hubungi admin.",
     };
   }
 
@@ -254,22 +254,20 @@ export const USER_COPY = {
     template: "Template",
     riwayat: "Riwayat",
     panduan: "Panduan",
-    koneksi: "Koneksi Databricks",
   },
   connection: {
+    notConnected: "Aplikasi belum terhubung ke penyimpanan data. Hubungi admin.",
     dbUnavailable: "Database sedang tidak bisa dihubungi. Coba lagi sebentar.",
-    incompletePrefix: "Koneksi ke penyimpanan data belum lengkap: ",
-    incompleteSuffix: ". Minta admin melengkapinya di halaman Koneksi Databricks.",
-    labels: {
-      alamat: "alamat workspace",
-      token: "token akses",
-      catalog: "katalog",
-      schema: "skema",
-    },
-    buildIncompleteMessage(missing: ("alamat" | "token" | "catalog" | "schema")[]): string {
-      const labels = missing.map((m) => USER_COPY.connection.labels[m] || m);
-      return `${USER_COPY.connection.incompletePrefix}${labels.join(", ")} belum diisi${USER_COPY.connection.incompleteSuffix}`;
-    },
+    hostMismatch:
+      "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin.",
+  },
+  admin: {
+    loginTitle: "Masukkan kata sandi admin",
+    loginHint: "Kata sandi admin hanya diperlukan untuk menghapus template secara permanen.",
+    wrongPassword: "Kata sandi admin salah. Periksa lalu coba lagi.",
+    blocked: "Terlalu banyak percobaan gagal. Tunggu 5 menit lalu coba lagi.",
+    notConfigured: "Login admin belum disiapkan. Hubungi admin.",
+    required: "Sesi admin diperlukan. Masukkan kata sandi admin lalu coba lagi.",
   },
   upload: {
     step1Title: "1. Pilih Template",

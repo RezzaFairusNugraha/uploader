@@ -1,16 +1,10 @@
 import { sql } from "drizzle-orm";
 import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
-export const appSettings = pgTable("app_settings", {
-  id: integer("id").primaryKey().default(1),
-  workspaceUrl: text("workspace_url").notNull(),
-  tokenEncrypted: text("token_encrypted").notNull(),
-  catalog: text("catalog").notNull(),
-  schema: text("schema"),
-  defaultVolumeName: text("default_volume_name").notNull().default("file_storage"),
-  maxUploadMb: integer("max_upload_mb").notNull().default(100),
-  maxTemplates: integer("max_templates").notNull().default(50),
-  adminPasswordHash: text("admin_password_hash"),
+export const adminLoginAttempts = pgTable("admin_login_attempts", {
+  ipHash: text("ip_hash").primaryKey(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -30,12 +24,7 @@ export const templates = pgTable(
     volumeName: text("volume_name").notNull(),
     schemaCreatedByApp: boolean("schema_created_by_app").notNull().default(false),
     volumeCreatedByApp: boolean("volume_created_by_app").notNull().default(false),
-    csvFolder: text("csv_folder").notNull().default("csv"),
-    parquetFolder: text("parquet_folder").notNull().default("parquet"),
     workspaceHost: text("workspace_host"),
-    needsCheck: boolean("needs_check").notNull().default(false),
-    visibility: text("visibility"),
-    visibilityCheckedAt: timestamp("visibility_checked_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: text("deleted_by"),
     version: integer("version").notNull().default(1),
@@ -97,8 +86,8 @@ export const uploadLog = pgTable("upload_log", {
     .notNull(),
 });
 
-export type AppSettingsRow = typeof appSettings.$inferSelect;
-export type InsertAppSettings = typeof appSettings.$inferInsert;
+export type AdminLoginAttemptRow = typeof adminLoginAttempts.$inferSelect;
+export type InsertAdminLoginAttempt = typeof adminLoginAttempts.$inferInsert;
 
 export type TemplateRow = typeof templates.$inferSelect;
 export type InsertTemplate = typeof templates.$inferInsert;

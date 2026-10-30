@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createDatabricksClient } from "@/lib/databricks";
-import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { USER_COPY } from "@/lib/copy";
 import {
   templateRepository,
@@ -15,6 +14,7 @@ import {
   validateLight,
   type ValidationTemplateTarget,
 } from "@/lib/validation";
+import { getDatabricksConfig, getLimitsConfig } from "@/platform/config";
 
 export const dynamic = "force-dynamic";
 
@@ -47,24 +47,10 @@ export async function PUT(
       );
     }
 
-    const conn = await getConnectionState();
-    if (conn.error) {
+    const dbConfig = getDatabricksConfig();
+    if (!dbConfig) {
       return NextResponse.json(
-        { error: USER_COPY.connection.dbUnavailable },
-        { status: 503 }
-      );
-    }
-    if (!conn.ready) {
-      return NextResponse.json(
-        { error: USER_COPY.connection.buildIncompleteMessage(conn.missing) },
-        { status: 400 }
-      );
-    }
-
-    const settings = await readDecryptedSettings();
-    if (!settings) {
-      return NextResponse.json(
-        { error: USER_COPY.connection.buildIncompleteMessage(["alamat", "token"]) },
+        { error: USER_COPY.connection.notConnected },
         { status: 400 }
       );
     }
@@ -122,36 +108,9 @@ export async function PUT(
       );
     }
 
-    const currentHost = settings.workspaceUrl
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "")
-      .toLowerCase();
-
+    const currentHost = dbConfig.workspaceHost;
     const lowerName = fileName.toLowerCase();
     const isParquet = lowerName.endsWith(".parquet");
-
-    if ("needsCheck" in template && template.needsCheck) {
-      if (template.id) {
-        await uploadLogRepository
-          .insert({
-            templateId: template.id,
-            originalName: fileName,
-            storedName: fileName,
-            sizeBytes: 0,
-            format: isParquet ? "parquet" : "csv",
-            destinationPath: "",
-            status: "gagal",
-            rowCount: 0,
-            uploaderName,
-            errorMessage: "Koneksi diganti. Template ini perlu diperiksa dulu.",
-          })
-          .catch(() => {});
-      }
-      return NextResponse.json(
-        { error: "Koneksi diganti. Template ini perlu diperiksa dulu." },
-        { status: 400 }
-      );
-    }
 
     if ("workspaceHost" in template && template.workspaceHost) {
       const templateHost = template.workspaceHost
@@ -159,27 +118,30 @@ export async function PUT(
         .replace(/\/.*$/, "")
         .toLowerCase();
       if (templateHost !== currentHost) {
-        if (template.id) {
-          await uploadLogRepository
-            .insert({
-              templateId: template.id,
-              originalName: fileName,
-              storedName: fileName,
-              sizeBytes: 0,
-              format: isParquet ? "parquet" : "csv",
-              destinationPath: "",
-              status: "gagal",
-              rowCount: 0,
-              uploaderName,
-              errorMessage: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin.",
-            })
-            .catch(() => {});
-        }
         return NextResponse.json(
-          { error: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin." },
+          { error: USER_COPY.connection.hostMismatch },
           { status: 400 }
         );
       }
+    }
+
+    const limits = getLimitsConfig();
+    const maxBytes = limits.maxUploadMb * 1024 * 1024;
+    const contentLengthHeader = request.headers.get("content-length");
+    if (contentLengthHeader && Number(contentLengthHeader) > maxBytes) {
+      return NextResponse.json(
+        {
+          error: `Ukuran berkas melebihi batas maksimum (${limits.maxUploadMb} MB)`,
+          errors: [
+            {
+              code: "FILE_TOO_LARGE",
+              level: "error",
+              message: `Ukuran berkas melebihi batas yang diizinkan (${limits.maxUploadMb} MB)`,
+            },
+          ],
+        },
+        { status: 422 }
+      );
     }
 
     const reader = request.body.getReader();
@@ -207,7 +169,6 @@ export async function PUT(
       offset += c.length;
     }
 
-    const contentLengthHeader = request.headers.get("content-length");
     const contentLength = contentLengthHeader
       ? parseInt(contentLengthHeader, 10)
       : streamDone
@@ -219,49 +180,29 @@ export async function PUT(
       fileName,
       template,
       contentLength,
-      settings.maxFileSizeMb
+      limits.maxUploadMb
     );
 
     if (!valResult.ok) {
-      reader.cancel().catch(() => {});
-      if (template.id) {
-        await uploadLogRepository
-          .insert({
-            templateId: template.id,
-            originalName: fileName,
-            storedName: fileName,
-            sizeBytes: contentLength || bytesRead,
-            format: isParquet ? "parquet" : "csv",
-            destinationPath: "",
-            status: "gagal",
-            rowCount: valResult.rowCount || 0,
-            uploaderName,
-            errorMessage: valResult.error || "Validasi berkas gagal",
-          })
-          .catch(() => {});
-      }
       return NextResponse.json(
-        { error: valResult.error || "Validasi berkas gagal" },
+        {
+          error: "Validasi berkas gagal",
+          errors: [{ message: valResult.error || "Validasi gagal" }],
+        },
         { status: 422 }
       );
     }
 
-    const subfolder = isParquet
-      ? "parquetFolder" in template && template.parquetFolder !== undefined
-        ? template.parquetFolder
-        : "parquet"
-      : "csvFolder" in template && template.csvFolder !== undefined
-      ? template.csvFolder
-      : "csv";
+    const subfolder = isParquet ? "parquet" : "csv";
     const templateSlug =
       ("slug" in template && template.slug) || template.id || "default_slug";
     const destinationFileName = buildDestinationFileName(
       templateSlug,
       fileName
     );
-    const catalog = template.volume?.catalog || settings.catalog;
+    const catalog = template.volume?.catalog || dbConfig.catalog;
     const schema = template.volume?.schema || templateSlug;
-    const volumeName = template.volume?.name || templateSlug;
+    const volumeName = template.volume?.name || dbConfig.volumeName || templateSlug;
 
     const destinationPath = buildVolumePath(
       catalog,
@@ -295,12 +236,9 @@ export async function PUT(
       },
     });
 
-    const client = createDatabricksClient(
-      settings.workspaceUrl,
-      settings.token
-    );
-
+    const client = createDatabricksClient(dbConfig.host, dbConfig.token);
     const putRes = await client.uploadFile(destinationPath, forwardStream);
+
     if (!putRes.success) {
       if (template.id) {
         await uploadLogRepository
