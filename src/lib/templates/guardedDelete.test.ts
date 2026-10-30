@@ -57,7 +57,6 @@ describe("Guarded Permanent Delete Flow", () => {
     process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
     process.env.DATABRICKS_TOKEN = "secret-token";
     process.env.DATABRICKS_CATALOG = "main";
-    process.env.DATABRICKS_VOLUME_NAME = "file_storage";
     process.env.ADMIN_PASSWORD = "admin_password_123";
     process.env.SESSION_SECRET = "super_long_secret_key_at_least_32_characters_123456";
   });

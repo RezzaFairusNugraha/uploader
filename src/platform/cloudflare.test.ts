@@ -133,7 +133,6 @@ describe("Cloudflare Workers limits and adapter", () => {
       workspaceHost: "mock.databricks.com",
       token: "mock-token",
       catalog: "main",
-      volumeName: "file_storage",
     });
 
     const fakeRepo = new templates.FakeInMemoryTemplateRepository();

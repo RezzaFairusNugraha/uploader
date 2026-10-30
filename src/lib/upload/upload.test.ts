@@ -34,7 +34,6 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
     delete process.env.DATABRICKS_HOST;
     delete process.env.DATABRICKS_TOKEN;
     delete process.env.DATABRICKS_CATALOG;
-    delete process.env.DATABRICKS_VOLUME_NAME;
   });
 
   afterEach(() => {
@@ -102,7 +101,6 @@ describe("Upload Flow & Forwarding ke Databricks Volume", () => {
       process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
       process.env.DATABRICKS_TOKEN = "test-token-valid";
       process.env.DATABRICKS_CATALOG = "main";
-      process.env.DATABRICKS_VOLUME_NAME = "file_storage";
       process.env.MAX_UPLOAD_MB = String(maxFileSizeMb);
     };
 

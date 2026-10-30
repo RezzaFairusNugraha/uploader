@@ -50,7 +50,6 @@ describe("Part B: Provisioning Flow per Template", () => {
     process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
     process.env.DATABRICKS_TOKEN = "valid-token";
     process.env.DATABRICKS_CATALOG = "main";
-    process.env.DATABRICKS_VOLUME_NAME = "file_storage";
   });
 
   afterEach(() => {
@@ -120,9 +119,9 @@ describe("Part B: Provisioning Flow per Template", () => {
     expect(res.template.volumeCreatedByApp).toBe(true);
 
     expect(callOrder[0]).toBe("createSchema:target_penjualan:123e4567-e89b-12d3-a456-426614174000");
-    expect(callOrder[1]).toContain("createVolume:file_storage:Dibuat oleh Data Uploader (template 123e4567-e89b-12d3-a456-426614174000)");
-    expect(callOrder[2]).toBe("createDirectory:/Volumes/main/target_penjualan/file_storage/csv");
-    expect(callOrder[3]).toBe("createDirectory:/Volumes/main/target_penjualan/file_storage/parquet");
+    expect(callOrder[1]).toContain("createVolume:target_penjualan:Dibuat oleh Data Uploader (template 123e4567-e89b-12d3-a456-426614174000)");
+    expect(callOrder[2]).toBe("createDirectory:/Volumes/main/target_penjualan/target_penjualan/csv");
+    expect(callOrder[3]).toBe("createDirectory:/Volumes/main/target_penjualan/target_penjualan/parquet");
   });
 
   it("resumes provisioning when schema and volume already exist with template marker", async () => {
@@ -137,7 +136,7 @@ describe("Part B: Provisioning Flow per Template", () => {
       createSchema: async () => ({ success: false, status: 409 }),
       getVolume: async () => ({
         success: true,
-        data: { name: "file_storage", catalog_name: "main", schema_name: "target_penjualan", volume_type: "MANAGED", comment: marker },
+        data: { name: "target_penjualan", catalog_name: "main", schema_name: "target_penjualan", volume_type: "MANAGED", comment: marker },
       }),
       createVolume: async () => ({ success: false, status: 409 }),
       createDirectory: async () => ({ success: true, status: 200 }),
