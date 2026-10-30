@@ -323,7 +323,7 @@ function EditTemplateForm({
 
       notify.success("Perubahan template berhasil disimpan");
       setTimeout(() => {
-        router.push("/template");
+        router.push("/uploader/template");
       }, 800);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Terjadi kesalahan";
@@ -345,7 +345,7 @@ function EditTemplateForm({
     return (
       <div className="space-y-4">
         <PageHeader title="Template Tidak Ditemukan" description="" />
-        <Link href="/template">
+        <Link href="/uploader/template">
           <Button variant="secondary">Kembali ke daftar template</Button>
         </Link>
       </div>
@@ -555,7 +555,7 @@ function EditTemplateForm({
         )}
 
         <div className="flex items-center justify-between pt-2">
-          <Link href="/template">
+          <Link href="/uploader/template">
             <Button type="button" variant="ghost">
               Batal
             </Button>

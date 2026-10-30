@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test",
+    "check:connection": "bun scripts/check-connection.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
@@ -48,11 +49,7 @@
   },
   "packageManager": "bun@1.4.2",
   "ignoreScripts": [
-    "sharp",
-    "unrs-resolver"
-  ],
-  "trustedDependencies": [
-    "sharp",
-    "unrs-resolver"
+    "@prisma/engines",
+    "@prisma/client"
   ]
 }

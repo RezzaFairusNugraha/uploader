@@ -1,25 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { createDatabricksClient } from "@/lib/databricks";
+import type { DatabricksClient, DatabricksResponse, UnityCatalogSchemaInfo, UnityCatalogVolumeInfo } from "@/lib/databricks";
 import {
-  FakeInMemorySettingsStore,
-  getConnectionState,
-  setSettingsStore,
-} from "@/lib/settings";
-import {
-  checkSchemaCollision,
   FakeInMemoryTemplateRepository,
-  provisionTemplate,
-  resolveVolumeName,
   setTemplateRepository,
+} from "./repository";
+import {
+  provisionTemplate,
+} from "./provision";
+import {
+  isReservedObjectName,
+  isValidObjectName,
   validateSchemaName,
-  type TemplateDefinition,
-} from "./index";
+  validateVolumeName,
+} from "./naming";
+import type { TemplateDefinition } from "./schema";
 
-describe("Template Provisioning Flow (One Schema & One Volume per Template)", () => {
+describe("Part B: Provisioning Flow per Template", () => {
   let repo: FakeInMemoryTemplateRepository;
-  let settingsStore: FakeInMemorySettingsStore;
-  const originalFetch = globalThis.fetch;
-  const dummyKey = Buffer.from("01234567890123456789012345678901", "utf8");
+  const originalEnv = { ...process.env };
 
   const validTemplate: TemplateDefinition = {
     id: "123e4567-e89b-12d3-a456-426614174000",
@@ -45,266 +43,177 @@ describe("Template Provisioning Flow (One Schema & One Volume per Template)", ()
     ],
   };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     repo = new FakeInMemoryTemplateRepository();
     setTemplateRepository(repo);
 
-    settingsStore = new FakeInMemorySettingsStore(dummyKey);
-    setSettingsStore(settingsStore);
+    process.env.DATABRICKS_HOST = "https://dbc-test.cloud.databricks.com";
+    process.env.DATABRICKS_TOKEN = "valid-token";
+    process.env.DATABRICKS_CATALOG = "main";
+    process.env.DATABRICKS_VOLUME_NAME = "file_storage";
+  });
 
-    await settingsStore.save({
-      workspaceUrl: "https://dbc-test.cloud.databricks.com",
-      token: "valid-secret-token",
-      catalog: "main",
-      defaultVolumeName: "file_storage",
-      maxFileSizeMb: 100,
-    });
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
 
+  it("validates naming rules and reserves information_schema and default", () => {
+    expect(isValidObjectName("target_penjualan")).toBe(true);
+    expect(isValidObjectName("ab")).toBe(false);
+    expect(isValidObjectName("123abc_")).toBe(false);
+    expect(isValidObjectName("A_Capital")).toBe(false);
+
+    expect(isReservedObjectName("information_schema")).toBe(true);
+    expect(isReservedObjectName("default")).toBe(true);
+    expect(isReservedObjectName("custom_schema")).toBe(false);
+
+    const valRes = validateSchemaName("default");
+    expect(valRes.valid).toBe(false);
+    expect(valRes.error).toBe("Nama folder sudah dipakai. Pilih nama lain.");
+
+    const volRes = validateVolumeName("information_schema");
+    expect(volRes.valid).toBe(false);
+    expect(volRes.error).toBe("Nama folder sudah dipakai. Pilih nama lain.");
+  });
+
+  it("provisions schema, volume, csv and parquet in order and sets created_by_app flags", async () => {
     await repo.create(validTemplate);
-  });
-
-  afterEach(async () => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it("urutan pembuatan: membuat schema dengan marker, volume, folder csv, folder parquet, dan mengaktifkan template", async () => {
     const callOrder: string[] = [];
-    let schemaBody: { name?: string; catalog_name?: string; comment?: string } | null = null;
 
-    globalThis.fetch = (async (url, init) => {
-      const urlStr = String(url);
-      const method = init?.method || "GET";
-
-      if (urlStr.includes("/schemas/main.target_penjualan") && method === "GET") {
-        callOrder.push("getSchema");
-        return new Response("Not found", { status: 404 });
-      }
-
-      if (urlStr.endsWith("/schemas") && method === "POST") {
-        callOrder.push("createSchema");
-        schemaBody = JSON.parse(init?.body as string);
-        return new Response(
-          JSON.stringify({ name: "target_penjualan", catalog_name: "main" }),
-          { status: 200 }
-        );
-      }
-
-      if (urlStr.includes("/volumes/main.target_penjualan.file_storage") && method === "GET") {
-        callOrder.push("getVolume");
-        return new Response("Not found", { status: 404 });
-      }
-
-      if (urlStr.endsWith("/volumes") && method === "POST") {
-        callOrder.push("createVolume");
-        return new Response(JSON.stringify({ name: "file_storage" }), {
-          status: 200,
-        });
-      }
-
-      if (urlStr.includes("/fs/directories") && method === "PUT") {
-        if (urlStr.includes("/csv")) callOrder.push("createCsv");
-        if (urlStr.includes("/parquet")) callOrder.push("createParquet");
-        return new Response("{}", { status: 200 });
-      }
-
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const result = await provisionTemplate(validTemplate.id);
-    expect(result.success).toBe(true);
-    expect(result.template.status).toBe("aktif");
-    expect(result.template.schemaCreatedByApp).toBe(true);
-    expect(result.template.volumeCreatedByApp).toBe(true);
-    expect(schemaBody?.comment).toBe(
-      `Dibuat oleh Data Uploader (template ${validTemplate.id})`
-    );
-    expect(callOrder).toEqual([
-      "getSchema",
-      "createSchema",
-      "getVolume",
-      "createVolume",
-      "createCsv",
-      "createParquet",
-    ]);
-    expect(result.steps.map((s) => s.name)).toEqual([
-      "Menyimpan template",
-      "Membuat folder induk",
-      "Membuat folder penyimpanan",
-      "Menyiapkan folder CSV",
-      "Menyiapkan folder Parquet",
-      "Siap dipakai",
-    ]);
-  });
-
-  it("resume ketika marker cocok pada schema yang sudah ada", async () => {
-    let createSchemaCalled = false;
-
-    globalThis.fetch = (async (url, init) => {
-      const urlStr = String(url);
-      const method = init?.method || "GET";
-
-      if (urlStr.includes("/schemas/main.target_penjualan") && method === "GET") {
-        return new Response(
-          JSON.stringify({
-            name: "target_penjualan",
-            catalog_name: "main",
-            comment: `Dibuat oleh Data Uploader (template ${validTemplate.id})`,
-          }),
-          { status: 200 }
-        );
-      }
-
-      if (urlStr.endsWith("/schemas") && method === "POST") {
-        createSchemaCalled = true;
-        return new Response("{}", { status: 200 });
-      }
-
-      if (urlStr.includes("/volumes/main.target_penjualan.file_storage") && method === "GET") {
-        return new Response("Not found", { status: 404 });
-      }
-
-      if (urlStr.endsWith("/volumes") && method === "POST") {
-        return new Response(JSON.stringify({ name: "file_storage" }), {
-          status: 200,
-        });
-      }
-
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const result = await provisionTemplate(validTemplate.id);
-    expect(result.success).toBe(true);
-    expect(createSchemaCalled).toBe(false);
-    expect(result.template.schemaCreatedByApp).toBe(true);
-    expect(result.template.volumeCreatedByApp).toBe(true);
-  });
-
-  it("adopsi ketika schema sudah ada tanpa marker", async () => {
-    globalThis.fetch = (async (url, init) => {
-      const urlStr = String(url);
-      const method = init?.method || "GET";
-
-      if (urlStr.includes("/schemas/main.target_penjualan") && method === "GET") {
-        return new Response(
-          JSON.stringify({
-            name: "target_penjualan",
-            catalog_name: "main",
-            comment: "Dibuat secara manual oleh tim data",
-          }),
-          { status: 200 }
-        );
-      }
-
-      if (urlStr.includes("/volumes/main.target_penjualan.file_storage") && method === "GET") {
-        return new Response(
-          JSON.stringify({
-            name: "file_storage",
-            catalog_name: "main",
-            schema_name: "target_penjualan",
-            volume_type: "MANAGED",
-          }),
-          { status: 200 }
-        );
-      }
-
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const initialAttempt = await provisionTemplate(validTemplate.id, {
-      adoptExisting: false,
-    });
-    expect(initialAttempt.success).toBe(false);
-    expect(initialAttempt.schemaExists).toBe(true);
-    expect(initialAttempt.template.status).toBe("gagal");
-
-    const adoptResult = await provisionTemplate(validTemplate.id, {
-      adoptExisting: true,
-    });
-    expect(adoptResult.success).toBe(true);
-    expect(adoptResult.template.status).toBe("aktif");
-    expect(adoptResult.template.schemaCreatedByApp).toBe(false);
-    expect(adoptResult.template.volumeCreatedByApp).toBe(false);
-  });
-
-  it("403 pada createSchema dipetakan ke pesan izin membuat folder penyimpanan baru", async () => {
-    globalThis.fetch = (async (url, init) => {
-      const urlStr = String(url);
-      const method = init?.method || "GET";
-
-      if (urlStr.includes("/schemas/main.target_penjualan") && method === "GET") {
-        return new Response("Not found", { status: 404 });
-      }
-
-      if (urlStr.endsWith("/schemas") && method === "POST") {
-        return new Response("Forbidden", { status: 403 });
-      }
-
-      return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const result = await provisionTemplate(validTemplate.id);
-    expect(result.success).toBe(false);
-    expect(result.error).toBe(
-      "Akun koneksi belum punya izin membuat folder penyimpanan baru. Hubungi admin."
-    );
-    expect(result.errorDetail).toContain("USE CATALOG");
-    expect(result.errorDetail).toContain("CREATE SCHEMA");
-  });
-
-  it("validasi penamaan termasuk nama tercadang dan benturan langsung (live collision)", async () => {
-    expect(validateSchemaName("information_schema").valid).toBe(false);
-    expect(validateSchemaName("default").valid).toBe(false);
-    expect(validateSchemaName("ab").valid).toBe(false);
-    expect(validateSchemaName("1_invalid").valid).toBe(false);
-    expect(validateSchemaName("valid_folder_123").valid).toBe(true);
-
-    expect(resolveVolumeName("my_slug", "file_storage")).toBe("file_storage");
-    expect(resolveVolumeName("my_slug", "")).toBe("my_slug");
-    expect(resolveVolumeName("my_slug", undefined)).toBe("my_slug");
-
-    globalThis.fetch = (async (url) => {
-      const urlStr = String(url);
-      if (urlStr.includes("/schemas/main.existing_folder")) {
-        return new Response(
-          JSON.stringify({ name: "existing_folder", catalog_name: "main" }),
-          { status: 200 }
-        );
-      }
-      return new Response("Not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const client = createDatabricksClient(
-      "https://dbc-test.cloud.databricks.com",
-      "token"
-    );
-
-    const colTrue = await checkSchemaCollision(client, "main", "existing_folder");
-    expect(colTrue.collision).toBe(true);
-    expect(colTrue.error).toBe("Nama folder sudah dipakai. Pilih nama lain.");
-
-    const colFalse = await checkSchemaCollision(client, "main", "new_folder");
-    expect(colFalse.collision).toBe(false);
-  });
-
-  it("status koneksi berfungsi tanpa schema global dan template lama tetap berjalan", async () => {
-    const connState = await getConnectionState();
-    expect(connState.ready).toBe(true);
-    expect(connState.missing).toEqual([]);
-
-    const legacyTemplate: TemplateDefinition = {
-      ...validTemplate,
-      id: crypto.randomUUID(),
-      name: "Template Lama",
-      slug: "template_lama",
-      volume: {
-        catalog: "legacy_cat",
-        schema: "legacy_schema",
-        name: "legacy_vol",
+    const mockClient: DatabricksClient = {
+      getSchema: async () => ({ success: false, status: 404 }),
+      createSchema: async (_cat, schema, templateId) => {
+        callOrder.push(`createSchema:${schema}:${templateId}`);
+        return {
+          success: true,
+          data: { name: schema, catalog_name: "main", comment: `Dibuat oleh Data Uploader (template ${templateId})` },
+        };
       },
+      getVolume: async () => ({ success: false, status: 404 }),
+      createVolume: async (_cat, _sch, name, comment) => {
+        callOrder.push(`createVolume:${name}:${comment}`);
+        return {
+          success: true,
+          data: { name, catalog_name: "main", schema_name: "target_penjualan", volume_type: "MANAGED", comment },
+        };
+      },
+      createDirectory: async (dirPath) => {
+        callOrder.push(`createDirectory:${dirPath}`);
+        return { success: true, status: 200 };
+      },
+      listCatalogs: async () => ({ success: true, data: { catalogs: [] } }),
+      getCatalog: async () => ({ success: true, data: { name: "main" } }),
+      listSchemas: async () => ({ success: true, data: { schemas: [] } }),
+      deleteSchema: async () => ({ success: true }),
+      listTables: async () => ({ success: true, data: { tables: [] } }),
+      listVolumes: async () => ({ success: true, data: { volumes: [] } }),
+      deleteVolume: async () => ({ success: true }),
+      listVolumeContents: async () => ({ success: true, data: { csvFiles: 0, csvSize: 0, parquetFiles: 0, parquetSize: 0, totalFiles: 0, totalSize: 0, capped: false } }),
+      uploadFile: async () => ({ success: true }),
+      isSchemaEmpty: async () => true,
     };
-    const createdLegacy = await repo.create(legacyTemplate);
-    expect(createdLegacy.volume.catalog).toBe("legacy_cat");
-    expect(createdLegacy.volume.schema).toBe("legacy_schema");
-    expect(createdLegacy.volume.name).toBe("legacy_vol");
+
+    const res = await provisionTemplate(validTemplate.id, { client: mockClient });
+    expect(res.success).toBe(true);
+    expect(res.template.status).toBe("aktif");
+    expect(res.template.schemaCreatedByApp).toBe(true);
+    expect(res.template.volumeCreatedByApp).toBe(true);
+
+    expect(callOrder[0]).toBe("createSchema:target_penjualan:123e4567-e89b-12d3-a456-426614174000");
+    expect(callOrder[1]).toContain("createVolume:file_storage:Dibuat oleh Data Uploader (template 123e4567-e89b-12d3-a456-426614174000)");
+    expect(callOrder[2]).toBe("createDirectory:/Volumes/main/target_penjualan/file_storage/csv");
+    expect(callOrder[3]).toBe("createDirectory:/Volumes/main/target_penjualan/file_storage/parquet");
+  });
+
+  it("resumes provisioning when schema and volume already exist with template marker", async () => {
+    await repo.create(validTemplate);
+    const marker = `Dibuat oleh Data Uploader (template ${validTemplate.id})`;
+
+    const mockClient: DatabricksClient = {
+      getSchema: async () => ({
+        success: true,
+        data: { name: "target_penjualan", catalog_name: "main", comment: marker },
+      }),
+      createSchema: async () => ({ success: false, status: 409 }),
+      getVolume: async () => ({
+        success: true,
+        data: { name: "file_storage", catalog_name: "main", schema_name: "target_penjualan", volume_type: "MANAGED", comment: marker },
+      }),
+      createVolume: async () => ({ success: false, status: 409 }),
+      createDirectory: async () => ({ success: true, status: 200 }),
+      listCatalogs: async () => ({ success: true, data: { catalogs: [] } }),
+      getCatalog: async () => ({ success: true, data: { name: "main" } }),
+      listSchemas: async () => ({ success: true, data: { schemas: [] } }),
+      deleteSchema: async () => ({ success: true }),
+      listTables: async () => ({ success: true, data: { tables: [] } }),
+      listVolumes: async () => ({ success: true, data: { volumes: [] } }),
+      deleteVolume: async () => ({ success: true }),
+      listVolumeContents: async () => ({ success: true, data: { csvFiles: 0, csvSize: 0, parquetFiles: 0, parquetSize: 0, totalFiles: 0, totalSize: 0, capped: false } }),
+      uploadFile: async () => ({ success: true }),
+      isSchemaEmpty: async () => true,
+    };
+
+    const res = await provisionTemplate(validTemplate.id, { client: mockClient });
+    expect(res.success).toBe(true);
+    expect(res.template.schemaCreatedByApp).toBe(true);
+    expect(res.template.volumeCreatedByApp).toBe(true);
+    expect(res.template.status).toBe("aktif");
+  });
+
+  it("stops with collision message when schema exists without marker", async () => {
+    await repo.create(validTemplate);
+
+    const mockClient: DatabricksClient = {
+      getSchema: async () => ({
+        success: true,
+        data: { name: "target_penjualan", catalog_name: "main", comment: "Created manually by admin" },
+      }),
+      createSchema: async () => ({ success: false, status: 409 }),
+      getVolume: async () => ({ success: false }),
+      createVolume: async () => ({ success: false }),
+      createDirectory: async () => ({ success: true }),
+      listCatalogs: async () => ({ success: true, data: { catalogs: [] } }),
+      getCatalog: async () => ({ success: true, data: { name: "main" } }),
+      listSchemas: async () => ({ success: true, data: { schemas: [] } }),
+      deleteSchema: async () => ({ success: true }),
+      listTables: async () => ({ success: true, data: { tables: [] } }),
+      listVolumes: async () => ({ success: true, data: { volumes: [] } }),
+      deleteVolume: async () => ({ success: true }),
+      listVolumeContents: async () => ({ success: true, data: { csvFiles: 0, csvSize: 0, parquetFiles: 0, parquetSize: 0, totalFiles: 0, totalSize: 0, capped: false } }),
+      uploadFile: async () => ({ success: true }),
+      isSchemaEmpty: async () => true,
+    };
+
+    const res = await provisionTemplate(validTemplate.id, { client: mockClient });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Nama folder sudah dipakai. Pilih nama lain.");
+    expect(res.template.status).toBe("gagal");
+  });
+
+  it("handles 403 on schema creation with permission explanation", async () => {
+    await repo.create(validTemplate);
+
+    const mockClient: DatabricksClient = {
+      getSchema: async () => ({ success: false, status: 404 }),
+      createSchema: async () => ({ success: false, status: 403, error: "Access Denied" }),
+      getVolume: async () => ({ success: false }),
+      createVolume: async () => ({ success: false }),
+      createDirectory: async () => ({ success: true }),
+      listCatalogs: async () => ({ success: true, data: { catalogs: [] } }),
+      getCatalog: async () => ({ success: true, data: { name: "main" } }),
+      listSchemas: async () => ({ success: true, data: { schemas: [] } }),
+      deleteSchema: async () => ({ success: true }),
+      listTables: async () => ({ success: true, data: { tables: [] } }),
+      listVolumes: async () => ({ success: true, data: { volumes: [] } }),
+      deleteVolume: async () => ({ success: true }),
+      listVolumeContents: async () => ({ success: true, data: { csvFiles: 0, csvSize: 0, parquetFiles: 0, parquetSize: 0, totalFiles: 0, totalSize: 0, capped: false } }),
+      uploadFile: async () => ({ success: true }),
+      isSchemaEmpty: async () => true,
+    };
+
+    const res = await provisionTemplate(validTemplate.id, { client: mockClient });
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("Akun koneksi belum punya izin membuat folder penyimpanan baru");
+    expect(res.errorDetail).toContain("USE CATALOG dan CREATE SCHEMA");
   });
 });

@@ -116,8 +116,7 @@ export async function DELETE(
     if (
       template.status === "membuat" ||
       template.status === "gagal" ||
-      template.status === "draf" ||
-      template.status === "draf_deteksi"
+      template.status === "draf"
     ) {
       await templateRepository.markDeleted(id, "Dibatalkan");
       return NextResponse.json({ success: true });

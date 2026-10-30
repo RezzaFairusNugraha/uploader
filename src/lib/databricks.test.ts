@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { createDatabricksClient, runConnectionTest } from "./databricks";
+import { createDatabricksClient } from "./databricks";
 
 describe("Databricks Client & Connection Test", () => {
   const originalFetch = globalThis.fetch;
@@ -157,65 +157,6 @@ describe("Databricks Client & Connection Test", () => {
       expect(calledUrl).toContain("/api/2.1/unity-catalog/schemas/main.my_schema");
       expect(calledUrl).not.toContain("force");
       expect(calledBody).toBeUndefined();
-    });
-  });
-
-  describe("Uji Koneksi Read-Only (runConnectionTest)", () => {
-    const dummySettings = {
-      workspaceUrl: "https://dbc-test.cloud.databricks.com",
-      token: "valid-secret-token",
-      catalog: "main",
-      maxFileSizeMb: 100,
-    };
-
-    it("berhasil melewati semua tahap dan menyertakan catatan izin membuat folder baru", async () => {
-      globalThis.fetch = (async (url) => {
-        const str = String(url);
-        if (str.includes("/catalogs/main")) {
-          return new Response(JSON.stringify({ name: "main" }), {
-            status: 200,
-          });
-        }
-        if (str.includes("/schemas?")) {
-          return new Response(JSON.stringify({ schemas: [] }), {
-            status: 200,
-          });
-        }
-        return new Response("Not Found", { status: 404 });
-      }) as unknown as typeof fetch;
-
-      const result = await runConnectionTest(dummySettings);
-      expect(result.success).toBe(true);
-      expect(result.steps.length).toBe(3);
-      expect(result.steps[0].success).toBe(true);
-      expect(result.steps[1].success).toBe(true);
-      expect(result.steps[2].success).toBe(true);
-      expect(result.steps[2].message).toBe(
-        "Izin membuat folder baru baru terbukti saat template pertama dibuat."
-      );
-    });
-
-    it("menghentikan langkah berikutnya jika token 401", async () => {
-      globalThis.fetch = (async () =>
-        new Response("Unauthorized", { status: 401 })) as unknown as typeof fetch;
-
-      const result = await runConnectionTest(dummySettings);
-      expect(result.success).toBe(false);
-      expect(result.steps[0].success).toBe(false);
-      expect(result.steps[1].message).toBe("Pemeriksaan dilewati");
-      expect(result.steps[2].message).toBe("Pemeriksaan dilewati");
-    });
-
-    it("menghentikan langkah jika katalog/skema 404", async () => {
-      globalThis.fetch = (async () =>
-        new Response("Not Found", { status: 404 })) as unknown as typeof fetch;
-
-      const result = await runConnectionTest(dummySettings);
-      expect(result.success).toBe(false);
-      expect(result.steps[0].success).toBe(true);
-      expect(result.steps[1].success).toBe(false);
-      expect(result.steps[1].message).toBe("Katalog atau skema tidak ditemukan");
-      expect(result.steps[2].message).toBe("Pemeriksaan dilewati");
     });
   });
 });

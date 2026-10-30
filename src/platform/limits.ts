@@ -1,31 +1,33 @@
-import { getEnv } from "./env";
+import { getLimitsConfig } from "./config";
 
 export interface PlatformLimits {
   maxUploadMb: number;
+  maxTemplates: number;
   serverValidation: "full" | "light";
   maxSubrequests: number;
   maxInspectRows: number;
 }
 
-export function getLimits(settingMaxUploadMb?: number): PlatformLimits {
-  const target = (getEnv("DEPLOY_TARGET") || "node").toLowerCase();
-  const setting =
-    typeof settingMaxUploadMb === "number" && !isNaN(settingMaxUploadMb)
-      ? settingMaxUploadMb
-      : 100;
+export function getLimits(configuredMaxMb?: number): PlatformLimits {
+  const cfg = getLimitsConfig();
+  const maxUploadMb = configuredMaxMb !== undefined ? configuredMaxMb : cfg.maxUploadMb;
+  const maxTemplates = cfg.maxTemplates;
+  const deployTarget = cfg.deployTarget;
 
-  if (target === "cloudflare") {
+  if (deployTarget === "cloudflare") {
     return {
-      maxUploadMb: Math.min(setting, 100),
+      maxUploadMb: Math.min(maxUploadMb, 100),
+      maxTemplates,
       serverValidation: "light",
       maxSubrequests: 40,
       maxInspectRows: 1000,
     };
   }
 
-  if (target === "aws-lambda") {
+  if (deployTarget === "aws-lambda") {
     return {
       maxUploadMb: 5,
+      maxTemplates,
       serverValidation: "light",
       maxSubrequests: Infinity,
       maxInspectRows: 1000,
@@ -33,7 +35,8 @@ export function getLimits(settingMaxUploadMb?: number): PlatformLimits {
   }
 
   return {
-    maxUploadMb: setting,
+    maxUploadMb,
+    maxTemplates,
     serverValidation: "full",
     maxSubrequests: Infinity,
     maxInspectRows: 2000,

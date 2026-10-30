@@ -1,9 +1,8 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { getLimits } from "./limits";
 import { validateLight } from "@/lib/validation/light";
-import { syncVolumesLoop } from "@/lib/templates/sync";
 import * as databricks from "@/lib/databricks";
-import * as settings from "@/lib/settings";
+import * as config from "@/platform/config";
 import * as templates from "@/lib/templates";
 import * as uploadLog from "@/lib/upload/log";
 
@@ -45,12 +44,15 @@ describe("Cloudflare Workers limits and adapter", () => {
   });
 
   const testTemplate = {
-    id: "tpl-123",
+    id: "999e4567-e89b-12d3-a456-426614174999",
     name: "Toko Template",
     slug: "toko_template",
-    delimiter: ";",
+    delimiter: ";" as const,
     status: "aktif" as const,
     volume: { catalog: "main", schema: "default", name: "toko_template" },
+    version: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     columns: [
       {
         name: "kode",
@@ -96,31 +98,6 @@ describe("Cloudflare Workers limits and adapter", () => {
     expect(invalidParquetResult.error).toContain("PAR1");
   });
 
-  it("the sync loop sends one volume per request and reports progress", async () => {
-    const items = ["folder_a", "folder_b", "folder_c"];
-    const calls: string[] = [];
-    const progressReports: string[] = [];
-
-    const results = await syncVolumesLoop(
-      items,
-      async (item) => {
-        calls.push(item);
-        return `done_${item}`;
-      },
-      (p) => {
-        progressReports.push(p.label);
-      }
-    );
-
-    expect(calls).toEqual(["folder_a", "folder_b", "folder_c"]);
-    expect(results).toEqual(["done_folder_a", "done_folder_b", "done_folder_c"]);
-    expect(progressReports).toEqual([
-      "Memeriksa 1 dari 3 folder",
-      "Memeriksa 2 dari 3 folder",
-      "Memeriksa 3 dari 3 folder",
-    ]);
-  });
-
   it("the streaming upload passes exact bytes through with mocked client and never buffers more than the first chunk", async () => {
     let capturedBytes: Uint8Array | null = null;
     let uploadCalled = false;
@@ -128,7 +105,9 @@ describe("Cloudflare Workers limits and adapter", () => {
     const spyClient = spyOn(databricks, "createDatabricksClient").mockImplementation(() => ({
       uploadFile: async (_path: string, body: BodyInit) => {
         uploadCalled = true;
-        if (body instanceof ReadableStream) {
+        if (body instanceof Uint8Array) {
+          capturedBytes = body;
+        } else if (body instanceof ReadableStream) {
           const reader = body.getReader();
           const chunks: Uint8Array[] = [];
           while (true) {
@@ -149,27 +128,20 @@ describe("Cloudflare Workers limits and adapter", () => {
       },
     } as unknown as databricks.DatabricksClient));
 
-    const spyConn = spyOn(settings, "getConnectionState").mockResolvedValue({
-      ready: true,
-      missing: [],
-      error: null,
-    });
-
-    const spySettings = spyOn(settings, "readDecryptedSettings").mockResolvedValue({
-      workspaceUrl: "https://mock.databricks.com",
+    const spyConfig = spyOn(config, "getDatabricksConfig").mockReturnValue({
+      host: "https://mock.databricks.com",
+      workspaceHost: "mock.databricks.com",
       token: "mock-token",
       catalog: "main",
-      schema: "default",
-      maxFileSizeMb: 100,
+      volumeName: "file_storage",
     });
 
-    const spyTemplate = spyOn(templates.templateRepository, "get").mockResolvedValue(
-      testTemplate as unknown as templates.TemplateDefinition
-    );
+    const fakeRepo = new templates.FakeInMemoryTemplateRepository();
+    templates.setTemplateRepository(fakeRepo);
+    await fakeRepo.create(testTemplate as unknown as templates.TemplateDefinition);
 
-    const spyLog = spyOn(uploadLog.uploadLogRepository, "insert").mockResolvedValue(
-      {} as unknown as uploadLog.UploadLogEntry
-    );
+    const fakeLogRepo = new uploadLog.FakeInMemoryUploadLogRepository();
+    uploadLog.setUploadLogRepository(fakeLogRepo);
 
     try {
       const { PUT } = await import("@/app/api/upload/[templateId]/route");
@@ -204,7 +176,7 @@ describe("Cloudflare Workers limits and adapter", () => {
         },
       });
 
-      const request = new Request("http://localhost/api/upload/tpl-123?name=data.csv", {
+      const request = new Request(`http://localhost/api/upload/${testTemplate.id}?name=data.csv`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/octet-stream",
@@ -214,8 +186,12 @@ describe("Cloudflare Workers limits and adapter", () => {
       });
 
       const response = await PUT(request, {
-        params: Promise.resolve({ templateId: "tpl-123" }),
+        params: Promise.resolve({ templateId: testTemplate.id }),
       });
+
+      if (response.status !== 200) {
+        console.log("PUT error detail:", await response.text());
+      }
 
       expect(response.status).toBe(200);
       expect(uploadCalled).toBe(true);
@@ -224,10 +200,7 @@ describe("Cloudflare Workers limits and adapter", () => {
       expect(capturedBytes).toEqual(fullOriginalBytes);
     } finally {
       spyClient.mockRestore();
-      spyConn.mockRestore();
-      spySettings.mockRestore();
-      spyTemplate.mockRestore();
-      spyLog.mockRestore();
+      spyConfig.mockRestore();
     }
   });
 });

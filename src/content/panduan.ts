@@ -13,6 +13,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
     content: [
       "Data Uploader dirancang untuk memudahkan staf non-teknis memeriksa dan mengunggah berkas data ke penyimpanan cloud Databricks secara mandiri.",
       "Seluruh proses validasi berkas dilakukan langsung di dalam peramban (browser) komputer Anda. Berkas tidak akan dikirim sebelum dipastikan benar-benar memenuhi format dan aturan pengisian kolom.",
+      "Koneksi ke Databricks telah disiapkan terpusat oleh administrator. Anda tidak perlu memasukkan token, kunci rahasia, atau pengaturan teknis apa pun untuk mulai mengunggah berkas.",
       "Alur kerja terdiri dari 3 langkah mudah: Pilih Template Data, Pilih Berkas (CSV atau Parquet), dan Kirim ke Penyimpanan Databricks.",
     ],
   },
@@ -21,7 +22,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
     title: "2. Format Berkas yang Diterima",
     summary: "Panduan menyiapkan berkas CSV dan Parquet agar lolos pemeriksaan.",
     content: [
-      "Format CSV: Pastikan berkas disimpan dengan format UTF-8. Pemisah kolom (delimiter) harus sesuai dengan pengaturan template (titik koma ';' atau koma ','). Header pada baris pertama harus memiliki nama kolom yang persis sama dengan template.",
+      "Format CSV: Pastikan berkas disimpan dengan format UTF-8. Pemisah kolom harus sesuai dengan pengaturan template (titik koma ';' atau koma ','). Header pada baris pertama harus memiliki nama kolom yang persis sama dengan template.",
       "Jika data Anda saat ini berada di aplikasi Microsoft Excel (.xlsx atau .xls), silakan buka berkas tersebut di Excel lalu gunakan menu 'Save As' atau 'Simpan Sebagai' dengan format 'CSV UTF-8 (Comma delimited) (*.csv)'.",
       "Format Parquet: Berkas .parquet harus valid dengan skema kolom dan tipe data yang sesuai dengan aturan template.",
       "Ukuran Berkas: Maksimal ukuran berkas yang didukung dapat dilihat pada area unggah (standar 100 MB).",
@@ -49,18 +50,19 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
       "Jika ditemukan kesalahan validasi, peramban akan menampilkan tabel daftar kendala lengkap dengan nomor baris, nama kolom, nilai yang bermasalah, dan penjelasannya.",
       "Anda dapat mengunduh daftar masalah tersebut dalam bentuk berkas .csv dengan menekan tombol 'Unduh daftar masalah (.csv)'.",
       "Buka berkas data asli Anda, perbaiki baris dan sel yang disebutkan pada laporan kendala, simpan kembali berkas, lalu seret ulang berkas tersebut ke halaman Unggah.",
-      "Jika terjadi kegagalan saat pengiriman ke Databricks, periksa apakah koneksi penyimpanan sedang terganggu atau hubungi administrator untuk memastikan hak akses folder penyimpanan masih aktif.",
+      "Jika muncul pesan bahwa aplikasi belum terhubung ke penyimpanan data atau akun koneksi belum memiliki izin, hubungi admin untuk memeriksa konfigurasi koneksi.",
     ],
   },
   {
     id: "mengelola-template",
     title: "5. Membuat dan Mengubah Template",
-    summary: "Bagaimana cara membuat template baru atau memperbarui aturan yang ada.",
+    summary: "Bagaimana cara membuat template baru dan bagaimana folder penyimpanan disiapkan.",
     content: [
       "Semua rekan kerja dapat membuka menu 'Template' untuk melihat daftar template yang ada, membuat template baru, atau mengubah aturan yang sudah terdaftar.",
-      "Saat membuat template baru, Anda dapat memanfaatkan fitur 'Impor dari berkas' untuk membaca struktur kolom dan menebak aturan secara otomatis dari berkas contoh.",
-      "Setiap perubahan struktur kolom akan otomatis dicatat versinya pada menu 'Riwayat Perubahan'.",
-      "Jika perubahan yang Anda buat bersifat mengubah aturan menjadi lebih ketat atau menghapus kolom, sistem akan menampilkan konfirmasi 'Saya paham dan lanjutkan' sebelum menyimpan.",
+      "Pembuatan template baru menyediakan dua cara: 'Dari file contoh' (membaca struktur kolom dan menebak aturan secara otomatis) atau 'Isi sendiri'.",
+      "Saat template disimpan dan disiapkan, sistem secara otomatis membuat folder induk (schema) sesuai nama folder template dan folder penyimpanan (volume) di Databricks beserta subfolder csv dan parquet.",
+      "Setiap pembaruan struktur kolom otomatis dicatat pada riwayat versi template.",
+      "Penghapusan template secara permanen membutuhkan kata sandi admin demi keamanan penyimpanan data.",
     ],
   },
 ];

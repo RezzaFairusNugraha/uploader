@@ -1,2 +1,10 @@
+DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+DATABRICKS_TOKEN=dapi_placeholder_token
+DATABRICKS_CATALOG=main
+DATABRICKS_VOLUME_NAME=file_storage
 DATABASE_URL=postgresql://user:password@endpoint-pooler.region.aws.neon.tech/neondb?sslmode=require
-ENCRYPTION_KEY=your-32-byte-base64-encryption-key
+ADMIN_PASSWORD=your_secure_admin_password
+SESSION_SECRET=min_32_characters_random_session_secret_key_string
+MAX_UPLOAD_MB=100
+MAX_TEMPLATES=50
+DEPLOY_TARGET=cloudflare

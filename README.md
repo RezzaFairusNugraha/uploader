@@ -1,116 +1,117 @@
-# Data Uploader
+# Portal Data & Data Uploader
 
-Aplikasi web untuk memvalidasi berkas CSV atau Parquet dari tim Sales dan Marketing, kemudian meneruskannya tanpa modifikasi ke Databricks Unity Catalog Volume menggunakan Databricks Files API.
+Aplikasi web untuk memvalidasi berkas CSV atau Parquet dari tim kerja, kemudian meneruskannya tanpa modifikasi ke penyimpanan Databricks Unity Catalog Volume.
 
-Aplikasi tidak mengubah isi, membersihkan, atau mengubah pengodean berkas. Seluruh byte diteruskan persis seperti yang diunggah.
+Validasi dilakukan langsung di peramban (browser) Anda sebelum pengunggahan. Seluruh byte berkas diteruskan persis sesuai aslinya tanpa perubahan pengodean maupun konten.
 
-## Menjalankan Aplikasi
+---
 
-### Kebutuhan Sistem
-- Bun 1.1 ke atas
+## Kebutuhan Sistem
 
-### Instalasi dan Menjalankan Server
-```bash
-bun install
-bun run dev
-```
-Aplikasi berjalan pada `http://localhost:3000`.
+- **Runtime**: Bun 1.1+ (disarankan) atau Node.js 20+
+- **Database**: Akun Neon Postgres (serverless)
+- **Penyimpanan**: Workspace Databricks dengan Unity Catalog
 
-### Pengujian dan Pemeriksaan Kode
+---
+
+## Variabel Lingkungan (Environment Variables)
+
+Semua pengaturan aplikasi dan koneksi penyimpanan dikonfigurasi melalui variabel lingkungan:
+
+| Variabel | Keterangan | Nilai Bawaan | Wajib / Opsional |
+| :--- | :--- | :--- | :--- |
+| `DATABRICKS_HOST` | Alamat workspace Databricks (otomatis dinormalisasi dengan https) | - | Wajib |
+| `DATABRICKS_TOKEN` | Token akses pribadi (PAT) Databricks untuk operasi penyimpanan | - | Wajib |
+| `DATABRICKS_CATALOG` | Nama Unity Catalog tujuan penyimpanan berkas | - | Wajib |
+| `DATABRICKS_VOLUME_NAME` | Nama folder penyimpanan (volume). Jika kosong, menggunakan nama folder template | `file_storage` | Opsional |
+| `DATABASE_URL` | URL koneksi pool Neon Postgres untuk runtime aplikasi | - | Wajib |
+| `DIRECT_DATABASE_URL` | URL koneksi langsung Neon Postgres (digunakan saat migrasi) | - | Wajib (migrasi) |
+| `ADMIN_PASSWORD` | Kata sandi admin untuk otorisasi penghapusan template permanen | - | Wajib |
+| `SESSION_SECRET` | Kunci rahasia minimal 32 karakter untuk tanda tangan sesi admin | - | Wajib |
+| `MAX_UPLOAD_MB` | Batas maksimum ukuran berkas unggahan dalam megabyte | `100` | Opsional |
+| `MAX_TEMPLATES` | Batas maksimum jumlah template aktif | `50` | Opsional |
+| `DEPLOY_TARGET` | Target lingkungan deployment (`node` atau `cloudflare`) | `node` | Opsional |
+
+---
+
+## Menjalankan di Komputer Lokal
+
+1. Salin berkas lingkungan contoh:
+   ```bash
+   cp .env.example .env.local
+   ```
+2. Isi nilai variabel lingkungan pada `.env.local`.
+3. Pasang dependensi dan jalankan server pengembangan:
+   ```bash
+   bun install
+   bun run dev
+   ```
+4. Buka peramban di `http://localhost:3000`.
+
+---
+
+## Penyiapan Database Neon Postgres
+
+1. Buat proyek baru di [Neon Console](https://console.neon.tech).
+2. Salin **Pooled connection string** dan tetapkan ke `DATABASE_URL`.
+3. Salin **Direct connection string** dan tetapkan ke `DIRECT_DATABASE_URL`.
+4. Hasilkan dan jalankan migrasi tabel aplikasi:
+   ```bash
+   bun run db:generate
+   bun run db:migrate
+   ```
+
+---
+
+## Penyiapan Databricks Unity Catalog
+
+1. Pastikan akun layanan atau pengguna memiliki izin berikut pada katalog yang ditentukan:
+   - `USE CATALOG`
+   - `CREATE SCHEMA`
+2. Buat Personal Access Token (PAT) dari profil akun Databricks Anda (**User Settings > Developer > Access Tokens**).
+3. Simpan token pada variabel `DATABRICKS_TOKEN`.
+4. Uji koneksi secara aman tanpa menulis data dengan perintah:
+   ```bash
+   bun run check:connection
+   ```
+   Perintah ini akan mencetak status koneksi ke database dan Databricks dalam bahasa Indonesia yang mudah dipahami.
+
+---
+
+## Menjalankan Pengujian
+
 ```bash
 bun test
-bun run lint
 bun run build
 ```
 
-## Menjalankan dengan Docker
+---
+
+## Penerapan (Deployment)
+
+### 1. Menjalankan dengan Docker
+
+Gunakan berkas `docker-compose.yml` yang membaca variabel dari lingkungan:
+
 ```bash
 docker compose up -d --build
 ```
-Aplikasi berjalan pada `http://127.0.0.1:3000`. Pengaturan disimpan di database Postgres (Neon) dengan token terenkripsi.
 
-## Izin Akses Databricks
+Aplikasi akan berjalan pada port `3000`.
 
-Setiap template memiliki satu skema (folder induk) dan satu volume (folder penyimpanan) di dalam katalog yang ditentukan. Disarankan untuk menggunakan **katalog khusus (dedicated catalog)** untuk aplikasi ini.
+### 2. Penerapan ke Cloudflare Workers / OpenNext
 
-1. **Akun Koneksi Aplikasi (Data Uploader)**:
-   - Memerlukan izin `USE CATALOG` dan `CREATE SCHEMA` pada katalog tujuan.
-   - Karena akun ini membuat skema dan volume untuk setiap template baru, akun tersebut otomatis menjadi pemilik (owner) atas objek yang dibuatnya dan dapat mengelola isi volume tersebut.
-2. **Akun Pipeline Data (Downstream)**:
-   - Berikan izin `USE CATALOG`, `USE SCHEMA`, dan `READ VOLUME` di tingkat katalog (catalog level) agar setiap folder template baru yang dibuat aplikasi langsung tercakup secara otomatis tanpa perlu pengaturan izin manual per template.
-
-## Menambahkan Template Baru
-
-Template dapat dibuat langsung melalui antarmuka web:
-1. Buka halaman **Template** (`/template`).
-2. Klik tombol **Buat template** (`/template/baru`).
-3. Isi informasi dasar (nama template, pemisah kolom), konfigurasi kolom dan aturan pengisian, serta folder penyimpanan.
-4. Simpan template. Template yang siap dipakai dapat langsung digunakan untuk validasi dan pengunggahan berkas.
-
-## Konfigurasi Nginx
-
-Jika menggunakan reverse proxy Nginx, matikan request buffering dan sesuaikan ukuran berkas:
-
-```nginx
-server {
-    listen 80;
-    server_name uploader.domain.com;
-
-    client_max_body_size 100M;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-
-        proxy_request_buffering off;
-    }
-}
-```
-
-## Penerapan ke Cloudflare Workers
-
-Anda dapat menjalankan aplikasi ini pada layanan Cloudflare Workers. Berikut langkah-langkah penyiapannya:
-
-### 1. Menyiapkan Akun dan Kunci Akses Cloudflare
-1. Buat akun di Cloudflare jika Anda belum memilikinya.
-2. Buat token API Cloudflare melalui menu profil dengan memilih template **Edit Cloudflare Workers**.
-3. Simpan **Account ID** dan token API yang baru saja dibuat.
-
-### 2. Menambahkan Rahasia pada GitHub
-Tambahkan dua rahasia (secrets) pada repositori GitHub Anda di menu **Settings > Secrets and variables > Actions**:
-- `CLOUDFLARE_API_TOKEN`: Token API yang telah Anda buat.
-- `CLOUDFLARE_ACCOUNT_ID`: ID akun Cloudflare Anda.
-
-### 3. Menjalankan Migrasi Database dari Komputer Anda
-Jalankan migrasi struktur database dari laptop/komputer Anda terlebih dahulu menggunakan perintah:
-```bash
-bun run db:migrate
-```
-
-### 4. Menyimpan Kunci Rahasia Runtime ke Cloudflare
-Simpan dua variabel rahasia aplikasi ke Cloudflare Workers menggunakan Wrangler (cukup dilakukan sekali):
-```bash
-bunx wrangler secret put DATABASE_URL
-bunx wrangler secret put ENCRYPTION_KEY
-```
-Masukkan URL database Neon dan kunci enkripsi 32-byte Anda saat diminta.
-
-### 5. Menjalankan Alur Kerja Penerapan
-1. Buka menu **Actions** di repositori GitHub Anda.
-2. Pilih alur kerja **Deploy to Cloudflare Workers**.
-3. Klik tombol **Run workflow** untuk memulai proses pengiriman ke Cloudflare.
-
-### 6. Membuka Aplikasi dan Mengisi Koneksi
-1. Setelah alur kerja selesai, buka alamat URL Cloudflare Workers yang diberikan.
-2. Masuk ke menu **Koneksi Databricks** dan lengkapi alamat workspace serta token Databricks Anda.
-
-### Batasan Paket Gratis Cloudflare Workers
-Pada paket gratis (Free plan), terdapat beberapa batasan sistem yang perlu Anda ketahui:
-- Waktu kerja prosesor (CPU) maksimal 10 ms per permintaan.
-- Ukuran kode aplikasi terkompresi maksimal 3 MiB.
-- Maksimal 50 permintaan keluar (subrequests) per permintaan HTTP.
-- Pemeriksaan di sisi server berjalan dalam mode ringan (pemeriksaan berkas secara menyeluruh tetap dilakukan di peramban Anda).
+1. Pastikan rahasia tersimpan pada Cloudflare menggunakan Wrangler:
+   ```bash
+   bunx wrangler secret put DATABRICKS_HOST
+   bunx wrangler secret put DATABRICKS_TOKEN
+   bunx wrangler secret put DATABRICKS_CATALOG
+   bunx wrangler secret put DATABASE_URL
+   bunx wrangler secret put ADMIN_PASSWORD
+   bunx wrangler secret put SESSION_SECRET
+   ```
+2. Bangun dan terapkan aplikasi:
+   ```bash
+   bun run cf:build
+   bun run cf:deploy
+   ```

@@ -2,14 +2,14 @@ import type { DatabricksClient } from "../databricks";
 
 export const OBJECT_NAME_REGEX = /^[a-z][a-z0-9_]{2,59}$/;
 
-export const RESERVED_SCHEMA_NAMES = new Set(["information_schema", "default"]);
+export const RESERVED_OBJECT_NAMES = new Set(["information_schema", "default"]);
 
 export function isValidObjectName(name: string): boolean {
   return OBJECT_NAME_REGEX.test(name);
 }
 
-export function isReservedSchemaName(name: string): boolean {
-  return RESERVED_SCHEMA_NAMES.has(name.toLowerCase());
+export function isReservedObjectName(name: string): boolean {
+  return RESERVED_OBJECT_NAMES.has(name.toLowerCase());
 }
 
 export function resolveVolumeName(slug: string, defaultVolumeName?: string | null): string {
@@ -21,7 +21,7 @@ export function resolveVolumeName(slug: string, defaultVolumeName?: string | nul
 }
 
 export function validateSchemaName(name: string): { valid: boolean; error?: string } {
-  if (isReservedSchemaName(name)) {
+  if (isReservedObjectName(name)) {
     return {
       valid: false,
       error: "Nama folder sudah dipakai. Pilih nama lain.",
@@ -37,10 +37,16 @@ export function validateSchemaName(name: string): { valid: boolean; error?: stri
 }
 
 export function validateVolumeName(name: string): { valid: boolean; error?: string } {
+  if (isReservedObjectName(name)) {
+    return {
+      valid: false,
+      error: "Nama folder sudah dipakai. Pilih nama lain.",
+    };
+  }
   if (!isValidObjectName(name)) {
     return {
       valid: false,
-      error: "Nama volume harus 3-60 karakter, diawali huruf kecil, dan hanya berisi huruf kecil, angka, atau garis bawah.",
+      error: "Nama folder harus 3-60 karakter, diawali huruf kecil, dan hanya berisi huruf kecil, angka, atau garis bawah.",
     };
   }
   return { valid: true };

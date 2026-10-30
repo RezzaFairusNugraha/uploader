@@ -29,6 +29,13 @@
       "when": 1793150446475,
       "tag": "0003_nebulous_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793346438715,
+      "tag": "0004_perpetual_warlock",
+      "breakpoints": true
     }
   ]
 }

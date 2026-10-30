@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createDatabricksClient } from "@/lib/databricks";
-import { getConnectionState, readDecryptedSettings } from "@/lib/settings";
 import { USER_COPY } from "@/lib/copy";
 import {
   templateRepository,
@@ -16,42 +15,35 @@ import {
   type ValidationInput,
   type ValidationTemplateTarget,
 } from "@/lib/validation";
+import { getDatabricksConfig, getLimitsConfig } from "@/platform/config";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
     const templateId = formData.get("templateId");
-    const uploaderName =
-      typeof formData.get("uploaderName") === "string"
-        ? (formData.get("uploaderName") as string).trim() || null
-        : null;
+    const uploaderName = (formData.get("uploaderName") as string) || null;
 
-    if (!file || !(file instanceof Blob) || typeof templateId !== "string") {
+    if (!templateId || typeof templateId !== "string") {
       return NextResponse.json(
-        { error: "Berkas dan template wajib disertakan" },
+        { error: "Template wajib dipilih" },
         { status: 400 }
       );
     }
 
-    const conn = await getConnectionState();
-    if (conn.error) {
+    if (!file || !(file instanceof Blob)) {
       return NextResponse.json(
-        { error: USER_COPY.connection.dbUnavailable },
-        { status: 503 }
-      );
-    }
-    if (!conn.ready) {
-      return NextResponse.json(
-        { error: USER_COPY.connection.buildIncompleteMessage(conn.missing) },
+        { error: "Berkas wajib diunggah" },
         { status: 400 }
       );
     }
 
-    const settings = await readDecryptedSettings();
-    if (!settings) {
+    const dbConfig = getDatabricksConfig();
+    if (!dbConfig) {
       return NextResponse.json(
-        { error: USER_COPY.connection.buildIncompleteMessage(["alamat", "token"]) },
+        { error: USER_COPY.connection.notConnected },
         { status: 400 }
       );
     }
@@ -109,37 +101,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const currentHost = settings.workspaceUrl
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "")
-      .toLowerCase();
-
+    const currentHost = dbConfig.workspaceHost;
     const fileName = file instanceof File ? file.name : "upload.csv";
     const lowerName = fileName.toLowerCase();
     const isParquet = lowerName.endsWith(".parquet");
-
-    if ("needsCheck" in template && template.needsCheck) {
-      if (template.id) {
-        await uploadLogRepository
-          .insert({
-            templateId: template.id,
-            originalName: fileName,
-            storedName: fileName,
-            sizeBytes: file.size,
-            format: isParquet ? "parquet" : "csv",
-            destinationPath: "",
-            status: "gagal",
-            rowCount: 0,
-            uploaderName,
-            errorMessage: "Koneksi diganti. Template ini perlu diperiksa dulu.",
-          })
-          .catch(() => {});
-      }
-      return NextResponse.json(
-        { error: "Koneksi diganti. Template ini perlu diperiksa dulu." },
-        { status: 400 }
-      );
-    }
 
     if ("workspaceHost" in template && template.workspaceHost) {
       const templateHost = template.workspaceHost
@@ -159,20 +124,21 @@ export async function POST(request: Request) {
               status: "gagal",
               rowCount: 0,
               uploaderName,
-              errorMessage: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin.",
+              errorMessage: USER_COPY.connection.hostMismatch,
             })
             .catch(() => {});
         }
         return NextResponse.json(
-          { error: "Template ini dibuat untuk koneksi yang berbeda dari koneksi saat ini. Hubungi admin." },
+          { error: USER_COPY.connection.hostMismatch },
           { status: 400 }
         );
       }
     }
 
-    const maxBytes = settings.maxFileSizeMb * 1024 * 1024;
+    const limits = getLimitsConfig();
+    const maxBytes = limits.maxUploadMb * 1024 * 1024;
     if (file.size > maxBytes) {
-      const limitMb = settings.maxFileSizeMb;
+      const limitMb = limits.maxUploadMb;
       return NextResponse.json(
         {
           error: `Ukuran berkas melebihi batas maksimum (${limitMb} MB)`,
@@ -210,22 +176,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const subfolder = isParquet
-      ? ("parquetFolder" in template && template.parquetFolder !== undefined
-          ? template.parquetFolder
-          : "parquet")
-      : ("csvFolder" in template && template.csvFolder !== undefined
-          ? template.csvFolder
-          : "csv");
+    const subfolder = isParquet ? "parquet" : "csv";
     const templateSlug =
       ("slug" in template && template.slug) || template.id || "default_slug";
     const destinationFileName = buildDestinationFileName(
       templateSlug,
       fileName
     );
-    const catalog = template.volume?.catalog || settings.catalog;
+    const catalog = template.volume?.catalog || dbConfig.catalog;
     const schema = template.volume?.schema || templateSlug;
-    const volumeName = template.volume?.name || templateSlug;
+    const volumeName = template.volume?.name || dbConfig.volumeName || templateSlug;
 
     const destinationPath = buildVolumePath(
       catalog,
@@ -235,11 +195,7 @@ export async function POST(request: Request) {
       destinationFileName
     );
 
-    const client = createDatabricksClient(
-      settings.workspaceUrl,
-      settings.token
-    );
-
+    const client = createDatabricksClient(dbConfig.host, dbConfig.token);
     const putRes = await client.uploadFile(destinationPath, fileBytes);
     if (!putRes.success) {
       if (template.id) {
