@@ -609,6 +609,7 @@ export default function NewTemplatePage() {
             </div>
 
             <DndContext
+              id="template-baru-dnd"
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragEnd={handleDragEnd}

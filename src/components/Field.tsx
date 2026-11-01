@@ -1,10 +1,11 @@
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 
 interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   id: string;
   hint?: string;
   error?: string;
+  children?: ReactNode;
 }
 
 export default function Field({
@@ -14,6 +15,7 @@ export default function Field({
   error,
   className = "",
   disabled,
+  children,
   ...props
 }: FieldProps) {
   const borderStyles = error
@@ -28,16 +30,20 @@ export default function Field({
       >
         {label}
       </label>
-      <input
-        id={id}
-        disabled={disabled}
-        aria-invalid={Boolean(error)}
-        aria-describedby={
-          error ? `${id}-error` : hint ? `${id}-hint` : undefined
-        }
-        className={`min-h-[44px] h-11 w-full px-3 text-base bg-white text-zinc-900 border rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 transition-colors disabled:bg-zinc-50 disabled:text-zinc-400 disabled:cursor-not-allowed ${borderStyles} ${className}`}
-        {...props}
-      />
+      {children ? (
+        children
+      ) : (
+        <input
+          id={id}
+          disabled={disabled}
+          aria-invalid={Boolean(error)}
+          aria-describedby={
+            error ? `${id}-error` : hint ? `${id}-hint` : undefined
+          }
+          className={`min-h-[44px] h-11 w-full px-3 text-base bg-white text-zinc-900 border rounded-lg placeholder:text-zinc-400 focus:outline-none focus:ring-2 transition-colors disabled:bg-zinc-50 disabled:text-zinc-400 disabled:cursor-not-allowed ${borderStyles} ${className}`}
+          {...props}
+        />
+      )}
       {error ? (
         <p id={`${id}-error`} className="mt-1 text-sm text-rose-600">
           {error}

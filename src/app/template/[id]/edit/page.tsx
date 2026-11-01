@@ -493,6 +493,7 @@ function EditTemplateForm({
           ) : (
             <div className="space-y-3">
               <DndContext
+                id="template-edit-dnd"
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 accessibility={sortableAccessibility}
