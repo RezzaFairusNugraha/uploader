@@ -7,8 +7,20 @@ export interface GuideTopic {
 
 export const PANDUAN_TOPICS: GuideTopic[] = [
   {
+    id: "menu-navigasi",
+    title: "1. Menu Navigasi Aplikasi",
+    summary: "Mengenal empat menu utama yang tersedia pada bilah samping aplikasi.",
+    content: [
+      "Data Uploader memiliki empat menu navigasi utama untuk mendukung pengunggahan data Anda:",
+      "Unggah: Halaman utama untuk memilih template, memeriksa kesesuaian berkas CSV atau Parquet, dan mengirimkannya ke penyimpanan Databricks.",
+      "Template: Tempat mengelola template data, membuat template baru dari berkas contoh atau mengisi sendiri, dan mengatur aturan kolom.",
+      "Riwayat: Menampilkan catatan riwayat pengunggahan berkas yang telah diproses beserta status dan lokasi penyimpanannya.",
+      "Panduan: Pusat informasi dan petunjuk penggunaan aplikasi untuk memandu Anda langkah demi langkah.",
+    ],
+  },
+  {
     id: "pengenalan",
-    title: "1. Pengenalan & Alur Kerja",
+    title: "2. Alur Kerja Pengunggahan",
     summary: "Memahami bagaimana Data Uploader membantu Anda menyiapkan dan mengirim data.",
     content: [
       "Data Uploader dirancang untuk memudahkan staf non-teknis memeriksa dan mengunggah berkas data ke penyimpanan cloud Databricks secara mandiri.",
@@ -19,7 +31,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
   },
   {
     id: "format-berkas",
-    title: "2. Format Berkas yang Diterima",
+    title: "3. Format Berkas yang Diterima",
     summary: "Panduan menyiapkan berkas CSV dan Parquet agar lolos pemeriksaan.",
     content: [
       "Format CSV: Pastikan berkas disimpan dengan format UTF-8. Pemisah kolom harus sesuai dengan pengaturan template (titik koma ';' atau koma ','). Header pada baris pertama harus memiliki nama kolom yang persis sama dengan template.",
@@ -30,7 +42,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
   },
   {
     id: "aturan-pengisian",
-    title: "3. Aturan Pengisian Kolom",
+    title: "4. Aturan Pengisian Kolom",
     summary: "Mengenal jenis aturan pemeriksaan yang diterapkan pada setiap kolom.",
     content: [
       "Wajib diisi: Kolom tidak boleh bernilai kosong pada baris data mana pun.",
@@ -44,7 +56,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
   },
   {
     id: "penanganan-kendala",
-    title: "4. Mengatasi Kendala Pemeriksaan",
+    title: "5. Mengatasi Kendala Pemeriksaan",
     summary: "Langkah yang perlu dilakukan jika berkas ditolak atau menampilkan pesan masalah.",
     content: [
       "Jika ditemukan kesalahan validasi, peramban akan menampilkan tabel daftar kendala lengkap dengan nomor baris, nama kolom, nilai yang bermasalah, dan penjelasannya.",
@@ -55,7 +67,7 @@ export const PANDUAN_TOPICS: GuideTopic[] = [
   },
   {
     id: "mengelola-template",
-    title: "5. Membuat dan Mengubah Template",
+    title: "6. Membuat dan Mengubah Template",
     summary: "Bagaimana cara membuat template baru dan bagaimana folder penyimpanan disiapkan.",
     content: [
       "Semua rekan kerja dapat membuka menu 'Template' untuk melihat daftar template yang ada, membuat template baru, atau mengubah aturan yang sudah terdaftar.",

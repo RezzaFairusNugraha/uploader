@@ -46,11 +46,11 @@ export default function AppShell({ children }: AppShellProps) {
             <Menu className="h-6 w-6" />
           </button>
           <Link
-            href="/uploader"
+            href="/"
             className="flex items-center gap-2 text-base font-bold tracking-tight text-zinc-900"
           >
             <Database className="h-5 w-5 text-indigo-600" />
-            <span>Portal Data</span>
+            <span>Data Uploader</span>
           </Link>
         </div>
       </header>

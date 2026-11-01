@@ -4,7 +4,7 @@ import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Portal Data",
+  title: "Data Uploader",
   description: "Validasi dan unggah berkas data ke Databricks",
 };
 

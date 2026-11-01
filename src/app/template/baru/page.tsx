@@ -380,7 +380,7 @@ export default function NewTemplatePage() {
       notify.success("Template berhasil dibuat dan siap dipakai");
       setTimeout(() => {
         startTransition(() => {
-          router.push("/uploader/template");
+          router.push("/template");
         });
       }, 1200);
     } catch (err: unknown) {
@@ -395,7 +395,7 @@ export default function NewTemplatePage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <Link
-          href="/uploader/template"
+          href="/template"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -684,7 +684,7 @@ export default function NewTemplatePage() {
           )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-zinc-200">
-            <Link href="/uploader/template">
+            <Link href="/template">
               <Button type="button" variant="secondary" className="min-h-[44px]">
                 Batal
               </Button>
