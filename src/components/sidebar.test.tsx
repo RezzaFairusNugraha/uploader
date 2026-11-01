@@ -66,9 +66,9 @@ describe("Part B: Flat Sidebar Navigation", () => {
       closed = true;
     };
 
-    const listeners: Record<string, (e: any) => void> = {};
+    const listeners: Record<string, (e: KeyboardEvent) => void> = {};
     const mockWindow = {
-      addEventListener: (type: string, handler: (e: any) => void) => {
+      addEventListener: (type: string, handler: (e: KeyboardEvent) => void) => {
         listeners[type] = handler;
       },
       removeEventListener: (type: string) => {

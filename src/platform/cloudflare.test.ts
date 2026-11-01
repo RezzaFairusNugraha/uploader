@@ -188,9 +188,6 @@ describe("Cloudflare Workers limits and adapter", () => {
         params: Promise.resolve({ templateId: testTemplate.id }),
       });
 
-      if (response.status !== 200) {
-        console.log("PUT error detail:", await response.text());
-      }
 
       expect(response.status).toBe(200);
       expect(uploadCalled).toBe(true);

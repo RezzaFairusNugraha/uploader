@@ -329,7 +329,6 @@ export default function UploadPage() {
         </Callout>
       )}
 
-      {/* Langkah 1: Template */}
       <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
         <div>
           <h2 className="text-xl font-semibold text-zinc-900">
@@ -383,7 +382,6 @@ export default function UploadPage() {
         )}
       </section>
 
-      {/* Langkah 2: Berkas */}
       <section ref={step2Ref} className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
         <div>
           <h2 className="text-xl font-semibold text-zinc-900">
@@ -481,7 +479,6 @@ export default function UploadPage() {
         )}
       </section>
 
-      {/* Langkah 3: Pengiriman & Validasi */}
       {file && !uploadedPath && (
         <section className="bg-white border border-zinc-200 rounded-xl p-6 space-y-4">
           <div>
@@ -550,7 +547,6 @@ export default function UploadPage() {
                 </div>
               )}
 
-              {/* Rangkuman Masalah per Kategori */}
               {Object.keys(validationResult.summary.issueCounts).length > 0 && (
                 <div className="flex flex-wrap gap-2 text-sm">
                   {Object.entries(validationResult.summary.issueCounts).map(([code, count]) => (
@@ -564,7 +560,6 @@ export default function UploadPage() {
                 </div>
               )}
 
-              {/* Tabel kendala */}
               {!validationResult.ok && validationResult.errors.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
@@ -641,7 +636,6 @@ export default function UploadPage() {
                 </div>
               )}
 
-              {/* Tombol aksi kirim */}
               <div className="pt-2">
                 <Button
                   variant="primary"
