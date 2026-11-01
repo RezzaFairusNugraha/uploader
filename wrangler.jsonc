@@ -11,7 +11,8 @@
     "binding": "ASSETS"
   },
   "vars": {
+    "DEPLOY_TARGET": "cloudflare",
     "DATABRICKS_CATALOG": "databricks_catalog",
     "DATABRICKS_HOST": "https://dbc-f8a4707b-9fe1.cloud.databricks.com/"
-  },
+  }
 }
