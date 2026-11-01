@@ -4,7 +4,7 @@ import nextConfig from "../../next.config";
 import { isNavItemActive } from "./Sidebar";
 
 describe("Part C: Sidebar and Modules Registry", () => {
-  it("the registry builds the right routes for uploader and dashboard modules and panduan", () => {
+  it("the registry builds the right routes for uploader and panduan", () => {
     const uploaderModule = MODULES.find((m) => m.id === "uploader");
     expect(uploaderModule).toBeDefined();
     expect(uploaderModule?.label).toBe("Uploader");
@@ -14,12 +14,7 @@ describe("Part C: Sidebar and Modules Registry", () => {
       "/uploader/riwayat",
     ]);
 
-    const dashboardModule = MODULES.find((m) => m.id === "dashboard");
-    expect(dashboardModule).toBeDefined();
-    expect(dashboardModule?.label).toBe("Dashboard");
-    expect(dashboardModule?.items.map((i) => i.href)).toEqual([
-      "/dashboard/mekari-talenta",
-    ]);
+    expect(MODULES.length).toBe(1);
 
     expect(PANDUAN_ITEM.href).toBe("/panduan");
     expect(PANDUAN_ITEM.label).toBe("Panduan");
@@ -61,8 +56,6 @@ describe("Part C: Sidebar and Modules Registry", () => {
     expect(isNavItemActive("/uploader/riwayat", "/uploader/riwayat")).toBe(true);
     expect(isNavItemActive("/uploader/riwayat", "/uploader")).toBe(false);
 
-    expect(isNavItemActive("/dashboard/mekari-talenta", "/dashboard/mekari-talenta")).toBe(true);
-    expect(isNavItemActive("/dashboard/mekari-talenta", "/uploader")).toBe(false);
 
     expect(isNavItemActive("/panduan", "/panduan")).toBe(true);
     expect(isNavItemActive("/panduan", "/uploader")).toBe(false);

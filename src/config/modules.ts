@@ -1,13 +1,5 @@
 import type { ComponentType } from "react";
-import {
-  UploadCloud,
-  LayoutDashboard,
-  Upload,
-  Layers,
-  Clock,
-  BarChart3,
-  BookOpen,
-} from "lucide-react";
+import { UploadCloud, Upload, Layers, Clock, BookOpen } from "lucide-react";
 
 export interface SubMenuItem {
   label: string;
@@ -31,18 +23,6 @@ export const MODULES: ModuleItem[] = [
       { label: "Unggah", href: "/uploader", icon: Upload },
       { label: "Template", href: "/uploader/template", icon: Layers },
       { label: "Riwayat", href: "/uploader/riwayat", icon: Clock },
-    ],
-  },
-  {
-    id: "dashboard",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-    items: [
-      {
-        label: "Mekari Talenta",
-        href: "/dashboard/mekari-talenta",
-        icon: BarChart3,
-      },
     ],
   },
 ];
