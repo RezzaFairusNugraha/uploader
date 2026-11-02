@@ -337,9 +337,9 @@ export default function TemplatePage() {
 
     try {
       const res = await fetch(`/api/templates/${tpl.id}/delete-preview`);
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setPreviewError(data.error || "Gagal memuat pratinjau penghapusan.");
+        setPreviewError(data?.error || "Gagal memuat pratinjau penghapusan.");
       } else {
         setDeletePreview(data);
       }
@@ -371,9 +371,9 @@ export default function TemplatePage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setDeleteError(data.error || "Gagal menghapus template. Coba lagi.");
+        setDeleteError(data?.error || "Gagal menghapus template. Coba lagi.");
         setIsDeleting(false);
         setDeleteStep(null);
         return;
@@ -382,8 +382,10 @@ export default function TemplatePage() {
       notify.success(`Template ${deleteTarget.name} dihapus permanen`);
       setDeleteTarget(null);
       await loadData();
-    } catch {
-      setDeleteError("Koneksi terputus saat menghapus template. Coba lagi.");
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Gagal menghapus template. Coba lagi.";
+      setDeleteError(msg);
       setIsDeleting(false);
       setDeleteStep(null);
     }
