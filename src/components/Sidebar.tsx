@@ -4,17 +4,16 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Menu,
   X,
   ChevronLeft,
   ChevronRight,
   Database,
 } from "lucide-react";
-import { MODULES, PANDUAN_ITEM, type ModuleItem, type SubMenuItem } from "@/config/modules";
+import { NAV_ITEMS } from "@/config/navigation";
 
 export function isNavItemActive(href: string, pathname: string): boolean {
-  if (href === "/uploader") {
-    return pathname === "/uploader" || pathname === "/uploader/";
+  if (href === "/") {
+    return pathname === "/";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -107,72 +106,42 @@ export default function Sidebar({
 
   const renderNavList = (collapsed: boolean, onItemClick?: () => void) => {
     return (
-      <div className="flex flex-col gap-6">
-        {MODULES.map((module) => (
-          <div key={module.id} className="space-y-1">
-            {!collapsed ? (
-              <h2 className="px-3 text-sm font-semibold text-zinc-400">
-                {module.label}
-              </h2>
-            ) : null}
-            <div className="space-y-1">
-              {module.items.map((item) => {
-                const active = isNavItemActive(item.href, pathname);
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={onItemClick}
-                    title={collapsed ? item.label : undefined}
-                    aria-label={collapsed ? item.label : undefined}
-                    className={`h-11 flex items-center rounded-lg text-sm whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
-                      collapsed ? "justify-center px-0 w-11 mx-auto" : "gap-3 px-3"
-                    } ${
-                      active
-                        ? "bg-zinc-100 text-indigo-600 font-semibold relative after:content-[''] after:absolute after:left-0 after:top-2 after:bottom-2 after:w-[2px] after:bg-indigo-600 after:rounded-r"
-                        : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 font-medium"
-                    }`}
-                  >
-                    {Icon ? <Icon className="h-5 w-5 shrink-0" /> : null}
-                    {!collapsed ? <span>{item.label}</span> : null}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      <div className="flex flex-col gap-1">
+        {NAV_ITEMS.map((item) => {
+          const active = isNavItemActive(item.href, pathname);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onItemClick}
+              title={collapsed ? item.label : undefined}
+              aria-label={collapsed ? item.label : undefined}
+              className={`h-11 flex items-center rounded-lg text-sm whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                collapsed ? "justify-center px-0 w-11 mx-auto" : "gap-3 px-3"
+              } ${
+                active
+                  ? "bg-zinc-100 text-indigo-600 font-semibold relative after:content-[''] after:absolute after:left-0 after:top-2 after:bottom-2 after:w-[2px] after:bg-indigo-600 after:rounded-r"
+                  : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 font-medium"
+              }`}
+            >
+              {Icon ? <Icon className="h-5 w-5 shrink-0" /> : null}
+              {!collapsed ? <span>{item.label}</span> : null}
+            </Link>
+          );
+        })}
       </div>
     );
   };
 
-  const renderFooter = (collapsed: boolean, onItemClick?: () => void) => {
-    const PanduanIcon = PANDUAN_ITEM.icon;
-    const isPanduanActive = isNavItemActive(PANDUAN_ITEM.href, pathname);
+  const renderFooter = (collapsed: boolean) => {
     const statusText =
       isConnected === true ? "Terhubung ke Databricks" : "Belum terhubung";
     const statusDotColor =
       isConnected === true ? "bg-emerald-500" : "bg-zinc-400";
 
     return (
-      <div className="space-y-3 pt-3 border-t border-zinc-200">
-        <Link
-          href={PANDUAN_ITEM.href}
-          onClick={onItemClick}
-          title={collapsed ? PANDUAN_ITEM.label : undefined}
-          aria-label={collapsed ? PANDUAN_ITEM.label : undefined}
-          className={`h-11 flex items-center rounded-lg text-sm whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
-            collapsed ? "justify-center px-0 w-11 mx-auto" : "gap-3 px-3"
-          } ${
-            isPanduanActive
-              ? "bg-zinc-100 text-indigo-600 font-semibold relative after:content-[''] after:absolute after:left-0 after:top-2 after:bottom-2 after:w-[2px] after:bg-indigo-600 after:rounded-r"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 font-medium"
-          }`}
-        >
-          {PanduanIcon ? <PanduanIcon className="h-5 w-5 shrink-0" /> : null}
-          {!collapsed ? <span>{PANDUAN_ITEM.label}</span> : null}
-        </Link>
-
+      <div className="pt-3 border-t border-zinc-200">
         <div
           className={`flex items-center text-sm text-zinc-600 ${
             collapsed ? "justify-center py-2" : "gap-2.5 px-3 py-1.5"
@@ -213,12 +182,12 @@ export default function Sidebar({
         <div className="space-y-6">
           <div className="flex items-center justify-between h-11 px-2">
             <Link
-              href="/uploader"
+              href="/"
               onClick={onCloseDrawer}
               className="flex items-center gap-2.5 text-base font-bold tracking-tight text-zinc-900"
             >
               <Database className="h-5 w-5 text-indigo-600" />
-              <span>Portal Data</span>
+              <span>Data Uploader</span>
             </Link>
             <button
               type="button"
@@ -231,7 +200,7 @@ export default function Sidebar({
           </div>
           {renderNavList(false, onCloseDrawer)}
         </div>
-        {renderFooter(false, onCloseDrawer)}
+        {renderFooter(false)}
       </div>
 
       <aside
@@ -246,12 +215,12 @@ export default function Sidebar({
             }`}
           >
             <Link
-              href="/uploader"
+              href="/"
               className="flex items-center gap-2.5 text-base font-bold tracking-tight text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 rounded-md"
-              title="Portal Data"
+              title="Data Uploader"
             >
               <Database className="h-5 w-5 text-indigo-600 shrink-0" />
-              {!isCollapsed ? <span>Portal Data</span> : null}
+              {!isCollapsed ? <span>Data Uploader</span> : null}
             </Link>
             {!isCollapsed ? (
               <button

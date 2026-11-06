@@ -9,23 +9,23 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
-        source: "/",
-        destination: "/uploader",
-        permanent: false,
-      },
-      {
-        source: "/template",
-        destination: "/uploader/template",
+        source: "/uploader",
+        destination: "/",
         permanent: true,
       },
       {
-        source: "/template/:path*",
-        destination: "/uploader/template/:path*",
+        source: "/uploader/template",
+        destination: "/template",
         permanent: true,
       },
       {
-        source: "/riwayat",
-        destination: "/uploader/riwayat",
+        source: "/uploader/template/:path*",
+        destination: "/template/:path*",
+        permanent: true,
+      },
+      {
+        source: "/uploader/riwayat",
+        destination: "/riwayat",
         permanent: true,
       },
     ];

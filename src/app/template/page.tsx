@@ -207,7 +207,7 @@ export default function TemplatePage() {
       description: tpl.description || "",
       copyFromId: tpl.id,
     });
-    router.push(`/uploader/template/baru?${params.toString()}`);
+    router.push(`/template/baru?${params.toString()}`);
   };
 
   const handleToggleArchive = async (tpl: TemplateWithMeta) => {
@@ -337,9 +337,9 @@ export default function TemplatePage() {
 
     try {
       const res = await fetch(`/api/templates/${tpl.id}/delete-preview`);
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setPreviewError(data.error || "Gagal memuat pratinjau penghapusan.");
+        setPreviewError(data?.error || "Gagal memuat pratinjau penghapusan.");
       } else {
         setDeletePreview(data);
       }
@@ -371,9 +371,9 @@ export default function TemplatePage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setDeleteError(data.error || "Gagal menghapus template. Coba lagi.");
+        setDeleteError(data?.error || "Gagal menghapus template. Coba lagi.");
         setIsDeleting(false);
         setDeleteStep(null);
         return;
@@ -382,8 +382,10 @@ export default function TemplatePage() {
       notify.success(`Template ${deleteTarget.name} dihapus permanen`);
       setDeleteTarget(null);
       await loadData();
-    } catch {
-      setDeleteError("Koneksi terputus saat menghapus template. Coba lagi.");
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Gagal menghapus template. Coba lagi.";
+      setDeleteError(msg);
       setIsDeleting(false);
       setDeleteStep(null);
     }
@@ -472,7 +474,7 @@ export default function TemplatePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <Link href="/uploader/template/baru">
+          <Link href="/template/baru">
             <Button
               variant="primary"
               className="whitespace-nowrap gap-2 min-h-[44px]"
@@ -481,7 +483,7 @@ export default function TemplatePage() {
               <span>Buat template</span>
             </Button>
           </Link>
-          <Link href="/uploader/template/perubahan">
+          <Link href="/template/perubahan">
             <Button
               variant="secondary"
               className="whitespace-nowrap gap-2 min-h-[44px]"
@@ -585,7 +587,7 @@ export default function TemplatePage() {
             </p>
           </div>
           <div>
-            <Link href="/uploader/template/baru">
+            <Link href="/template/baru">
               <Button variant="primary">
                 <Plus className="w-4 h-4 mr-1.5 inline" />
                 Buat template
@@ -978,7 +980,7 @@ function TemplateCard({
           <span>Unduh template</span>
         </Button>
 
-        <Link href={`/uploader/template/${tpl.id}/edit`}>
+        <Link href={`/template/${tpl.id}/edit`}>
           <Button
             type="button"
             variant="secondary"
@@ -1037,7 +1039,7 @@ function TemplateCard({
                 <span>Buat dari template ini</span>
               </button>
               <Link
-                href="/uploader/template/perubahan"
+                href="/template/perubahan"
                 role="menuitem"
                 onClick={onCloseMenu}
                 className="w-full text-left px-3.5 py-2.5 rounded-lg text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer flex items-center gap-2.5"

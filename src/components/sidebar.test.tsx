@@ -1,71 +1,63 @@
 import { describe, expect, it } from "bun:test";
-import { MODULES, PANDUAN_ITEM } from "@/config/modules";
+import { NAV_ITEMS } from "@/config/navigation";
 import nextConfig from "../../next.config";
 import { isNavItemActive } from "./Sidebar";
 
-describe("Part C: Sidebar and Modules Registry", () => {
-  it("the registry builds the right routes for uploader and dashboard modules and panduan", () => {
-    const uploaderModule = MODULES.find((m) => m.id === "uploader");
-    expect(uploaderModule).toBeDefined();
-    expect(uploaderModule?.label).toBe("Uploader");
-    expect(uploaderModule?.items.map((i) => i.href)).toEqual([
-      "/uploader",
-      "/uploader/template",
-      "/uploader/riwayat",
+describe("Part B: Flat Sidebar Navigation", () => {
+  it("the navigation registry holds the four flat routes", () => {
+    expect(NAV_ITEMS.map((item) => item.href)).toEqual([
+      "/",
+      "/template",
+      "/riwayat",
+      "/panduan",
     ]);
-
-    const dashboardModule = MODULES.find((m) => m.id === "dashboard");
-    expect(dashboardModule).toBeDefined();
-    expect(dashboardModule?.label).toBe("Dashboard");
-    expect(dashboardModule?.items.map((i) => i.href)).toEqual([
-      "/dashboard/mekari-talenta",
+    expect(NAV_ITEMS.map((item) => item.label)).toEqual([
+      "Unggah",
+      "Template",
+      "Riwayat",
+      "Panduan",
     ]);
-
-    expect(PANDUAN_ITEM.href).toBe("/panduan");
-    expect(PANDUAN_ITEM.label).toBe("Panduan");
   });
 
-  it("the redirects map correctly in next.config", async () => {
+  it("the redirects map correctly in next.config from /uploader paths to root", async () => {
     expect(nextConfig.redirects).toBeDefined();
     const redirects = await nextConfig.redirects!();
 
-    const rootRedirect = redirects.find((r) => r.source === "/");
-    expect(rootRedirect).toBeDefined();
-    expect(rootRedirect?.destination).toBe("/uploader");
+    const uploaderRoot = redirects.find((r) => r.source === "/uploader");
+    expect(uploaderRoot).toBeDefined();
+    expect(uploaderRoot?.destination).toBe("/");
 
-    const templateRedirect = redirects.find((r) => r.source === "/template");
+    const templateRedirect = redirects.find((r) => r.source === "/uploader/template");
     expect(templateRedirect).toBeDefined();
-    expect(templateRedirect?.destination).toBe("/uploader/template");
+    expect(templateRedirect?.destination).toBe("/template");
 
-    const templateWildcard = redirects.find((r) => r.source === "/template/:path*");
+    const templateWildcard = redirects.find((r) => r.source === "/uploader/template/:path*");
     expect(templateWildcard).toBeDefined();
-    expect(templateWildcard?.destination).toBe("/uploader/template/:path*");
+    expect(templateWildcard?.destination).toBe("/template/:path*");
 
-    const riwayatRedirect = redirects.find((r) => r.source === "/riwayat");
+    const riwayatRedirect = redirects.find((r) => r.source === "/uploader/riwayat");
     expect(riwayatRedirect).toBeDefined();
-    expect(riwayatRedirect?.destination).toBe("/uploader/riwayat");
+    expect(riwayatRedirect?.destination).toBe("/riwayat");
   });
 
   it("the active item follows the path accurately", () => {
-    expect(isNavItemActive("/uploader", "/uploader")).toBe(true);
-    expect(isNavItemActive("/uploader", "/uploader/")).toBe(true);
-    expect(isNavItemActive("/uploader", "/uploader/template")).toBe(false);
-    expect(isNavItemActive("/uploader", "/uploader/riwayat")).toBe(false);
+    expect(isNavItemActive("/", "/")).toBe(true);
+    expect(isNavItemActive("/", "/template")).toBe(false);
+    expect(isNavItemActive("/", "/riwayat")).toBe(false);
+    expect(isNavItemActive("/", "/panduan")).toBe(false);
 
-    expect(isNavItemActive("/uploader/template", "/uploader/template")).toBe(true);
-    expect(isNavItemActive("/uploader/template", "/uploader/template/baru")).toBe(true);
-    expect(isNavItemActive("/uploader/template", "/uploader/template/tpl-123/edit")).toBe(true);
-    expect(isNavItemActive("/uploader/template", "/uploader/template/perubahan")).toBe(true);
-    expect(isNavItemActive("/uploader/template", "/uploader")).toBe(false);
+    expect(isNavItemActive("/template", "/template")).toBe(true);
+    expect(isNavItemActive("/template", "/template/baru")).toBe(true);
+    expect(isNavItemActive("/template", "/template/tpl-123/edit")).toBe(true);
+    expect(isNavItemActive("/template", "/template/perubahan")).toBe(true);
+    expect(isNavItemActive("/template", "/")).toBe(false);
+    expect(isNavItemActive("/template", "/riwayat")).toBe(false);
 
-    expect(isNavItemActive("/uploader/riwayat", "/uploader/riwayat")).toBe(true);
-    expect(isNavItemActive("/uploader/riwayat", "/uploader")).toBe(false);
-
-    expect(isNavItemActive("/dashboard/mekari-talenta", "/dashboard/mekari-talenta")).toBe(true);
-    expect(isNavItemActive("/dashboard/mekari-talenta", "/uploader")).toBe(false);
+    expect(isNavItemActive("/riwayat", "/riwayat")).toBe(true);
+    expect(isNavItemActive("/riwayat", "/")).toBe(false);
 
     expect(isNavItemActive("/panduan", "/panduan")).toBe(true);
-    expect(isNavItemActive("/panduan", "/uploader")).toBe(false);
+    expect(isNavItemActive("/panduan", "/")).toBe(false);
   });
 
   it("the drawer opens and closes with Escape key listener", () => {
@@ -74,9 +66,9 @@ describe("Part C: Sidebar and Modules Registry", () => {
       closed = true;
     };
 
-    const listeners: Record<string, (e: any) => void> = {};
+    const listeners: Record<string, (e: KeyboardEvent) => void> = {};
     const mockWindow = {
-      addEventListener: (type: string, handler: (e: any) => void) => {
+      addEventListener: (type: string, handler: (e: KeyboardEvent) => void) => {
         listeners[type] = handler;
       },
       removeEventListener: (type: string) => {

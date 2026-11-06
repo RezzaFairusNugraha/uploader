@@ -1,4 +1,4 @@
-# Portal Data & Data Uploader
+# Data Uploader
 
 Aplikasi web untuk memvalidasi berkas CSV atau Parquet dari tim kerja, kemudian meneruskannya tanpa modifikasi ke penyimpanan Databricks Unity Catalog Volume.
 
