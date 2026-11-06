@@ -7,12 +7,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
-  Database,
-  FileSpreadsheet,
-  FileUp,
-  GripVertical,
   Plus,
-  Trash2,
   UploadCloud,
   CheckCircle2,
   XCircle,
@@ -27,22 +22,31 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
 } from "@dnd-kit/core";
 import {
   arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
-  useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import Button from "@/components/Button";
 import Callout from "@/components/Callout";
 import Field from "@/components/Field";
 import PageHeader from "@/components/PageHeader";
+import {
+  defaultRulesByType,
+  DragOverlayColumnRow,
+  type RuleType,
+  SortableColumnRow,
+  type SortableColumnItemData,
+} from "@/components/SortableColumnRow";
 import { notify } from "@/lib/notify";
 import { inferFromCsv, inferFromParquet } from "@/lib/templates/infer";
+import { sortableAccessibility } from "@/lib/templates/sortableAccessibility";
 import {
+  columnNameRegex,
   slugify,
   validateSchemaName,
   type ColumnDefinition,
@@ -52,126 +56,7 @@ import {
 } from "@/lib/templates";
 import { USER_COPY } from "@/lib/copy";
 
-interface ColumnDraft {
-  id: string;
-  name: string;
-  required: boolean;
-  rule: ColumnRule;
-  formatOption?: string;
-}
-
-function SortableColumnItem({
-  col,
-  idx,
-  onUpdate,
-  onRemove,
-  canRemove,
-}: {
-  col: ColumnDraft;
-  idx: number;
-  onUpdate: (updated: ColumnDraft) => void;
-  onRemove: () => void;
-  canRemove: boolean;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: col.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-  };
-
-  const ruleType = col.rule.type;
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-start gap-3 p-4 bg-white border rounded-xl transition-all ${
-        isDragging
-          ? "border-indigo-500 shadow-lg ring-2 ring-indigo-500/20 opacity-90"
-          : "border-zinc-200 hover:border-zinc-300"
-      }`}
-    >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label="Pindahkan urutan kolom"
-        className="mt-2.5 p-1 text-zinc-400 hover:text-zinc-700 cursor-grab active:cursor-grabbing shrink-0"
-      >
-        <GripVertical className="w-5 h-5" />
-      </button>
-
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
-        <div className="md:col-span-5">
-          <input
-            type="text"
-            value={col.name}
-            onChange={(e) => onUpdate({ ...col, name: e.target.value })}
-            placeholder="Nama kolom"
-            className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-          />
-        </div>
-
-        <div className="md:col-span-4">
-          <select
-            value={ruleType}
-            onChange={(e) => {
-              const newType = e.target.value;
-              let newRule: ColumnRule;
-              if (newType === "digits") newRule = { type: "digits", length: 6 };
-              else if (newType === "integer") newRule = { type: "integer" };
-              else if (newType === "decimal") newRule = { type: "decimal" };
-              else if (newType === "date") newRule = { type: "date", format: "yyyy-MM-dd" };
-              else if (newType === "list") newRule = { type: "list", values: ["PILIHAN_1"] };
-              else newRule = { type: "text" };
-              onUpdate({ ...col, rule: newRule });
-            }}
-            className="w-full h-11 px-3 text-base bg-white border border-zinc-200 rounded-lg text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
-          >
-            <option value="text">Teks</option>
-            <option value="digits">Digit angka</option>
-            <option value="integer">Bilangan bulat</option>
-            <option value="decimal">Desimal</option>
-            <option value="date">Tanggal</option>
-            <option value="list">Daftar pilihan</option>
-          </select>
-        </div>
-
-        <div className="md:col-span-3 flex items-center justify-between h-11 px-1">
-          <label className="flex items-center gap-2 cursor-pointer text-base text-zinc-700">
-            <input
-              type="checkbox"
-              checked={col.required}
-              onChange={(e) => onUpdate({ ...col, required: e.target.checked })}
-              className="w-4 h-4 rounded text-indigo-600 border-zinc-300 focus:ring-indigo-600"
-            />
-            <span>Wajib diisi</span>
-          </label>
-
-          {canRemove && (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="p-2 text-zinc-400 hover:text-red-600 transition-colors"
-              title="Hapus kolom"
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+interface ColumnDraft extends SortableColumnItemData {}
 
 export default function NewTemplatePage() {
   const router = useRouter();
@@ -190,10 +75,13 @@ export default function NewTemplatePage() {
       id: "col_1",
       name: "id",
       required: true,
+      type: "text",
       rule: { type: "text" },
+      isExpanded: false,
     },
   ]);
 
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [provisionSteps, setProvisionSteps] = useState<ProvisionStepStatus[] | null>(null);
@@ -224,6 +112,44 @@ export default function NewTemplatePage() {
         }
       })
       .catch(() => setIsConfigured(false));
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const qName = searchParams.get("name");
+    const qDelim = searchParams.get("delimiter");
+    const qDesc = searchParams.get("description");
+    const qCopyFromId = searchParams.get("copyFromId");
+
+    if (qName) {
+      setName(qName);
+      setSlug(slugify(qName));
+      setActiveTab("manual");
+    }
+    if (qDelim === ";" || qDelim === ",") {
+      setDelimiter(qDelim);
+    }
+    if (qDesc) {
+      setDescription(qDesc);
+    }
+    if (qCopyFromId) {
+      fetch(`/api/templates/${qCopyFromId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.columns && Array.isArray(data.columns)) {
+            setColumns(
+              data.columns.map((c: ColumnDefinition, idx: number) => ({
+                id: `col_copy_${idx}_${Date.now()}`,
+                name: c.name,
+                required: c.required,
+                type: c.rule.type as RuleType,
+                rule: c.rule,
+                isExpanded: false,
+              }))
+            );
+            setActiveTab("manual");
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const handleNameChange = (val: string) => {
@@ -238,7 +164,12 @@ export default function NewTemplatePage() {
     setIsSlugCustomized(true);
   };
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     setColumns((items) => {
@@ -246,6 +177,77 @@ export default function NewTemplatePage() {
       const newIndex = items.findIndex((i) => i.id === over.id);
       return arrayMove(items, oldIndex, newIndex);
     });
+  };
+
+  const addColumn = () => {
+    const newId = `col_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const newDraft: ColumnDraft = {
+      id: newId,
+      name: `kolom_${columns.length + 1}`,
+      required: true,
+      type: "text",
+      rule: { type: "text" },
+      isExpanded: true,
+    };
+    setColumns((prev) => [...prev, newDraft]);
+    setTimeout(() => {
+      const el = document.getElementById(newId);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        const input = el.querySelector("input[type='text']") as HTMLInputElement | null;
+        input?.focus();
+      }
+    }, 50);
+  };
+
+  const removeColumn = (colId: string) => {
+    if (columns.length <= 1) {
+      notify.warning("Template harus memiliki minimal 1 kolom");
+      return;
+    }
+    const targetIdx = columns.findIndex((c) => c.id === colId);
+    if (targetIdx === -1) return;
+    const targetCol = columns[targetIdx];
+    setColumns((prev) => prev.filter((c) => c.id !== colId));
+
+    notify.info(`Kolom ${targetCol.name} dihapus`, {
+      action: {
+        label: "Batalkan",
+        onClick: () => {
+          setColumns((current) => {
+            const restored = [...current];
+            const insertIdx = Math.min(targetIdx, restored.length);
+            restored.splice(insertIdx, 0, targetCol);
+            return restored;
+          });
+        },
+      },
+    });
+  };
+
+  const updateColumn = (colId: string, patch: Partial<ColumnDraft>) => {
+    setColumns((prev) =>
+      prev.map((c) => {
+        if (c.id !== colId) return c;
+        const updated = { ...c, ...patch };
+        if (patch.type && patch.type !== c.type) {
+          updated.rule = { ...defaultRulesByType[patch.type] };
+        }
+        return updated;
+      })
+    );
+  };
+
+  const updateColumnRule = (colId: string, rulePatch: Partial<ColumnRule>) => {
+    setColumns((prev) =>
+      prev.map((c) => {
+        if (c.id !== colId) return c;
+        return {
+          ...c,
+          rule: { ...c.rule, ...rulePatch } as ColumnRule,
+        };
+      })
+    );
   };
 
   const handleFileImport = async (file: File) => {
@@ -275,7 +277,9 @@ export default function NewTemplatePage() {
         id: `col_imp_${Date.now()}_${i}`,
         name: c.name,
         required: c.required,
+        type: c.rule.type as RuleType,
         rule: c.rule,
+        isExpanded: false,
       }));
 
       setColumns(mapped);
@@ -288,6 +292,12 @@ export default function NewTemplatePage() {
       setIsParsingFile(false);
     }
   };
+
+  const duplicateNames = new Set(
+    columns
+      .map((c) => c.name.trim().toLowerCase())
+      .filter((colName, idx, arr) => colName && arr.indexOf(colName) !== idx)
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -311,10 +321,17 @@ export default function NewTemplatePage() {
     }
 
     const seenCols = new Set<string>();
-    for (const c of columns) {
+    for (let i = 0; i < columns.length; i++) {
+      const c = columns[i];
       const cName = c.name.trim();
       if (!cName) {
-        notify.error("Nama kolom tidak boleh kosong");
+        notify.error(`Kolom #${i + 1} belum memiliki nama`);
+        return;
+      }
+      if (!columnNameRegex.test(cName)) {
+        notify.error(
+          `Nama kolom '${cName}' tidak valid. Gunakan huruf, angka, atau underscore`
+        );
         return;
       }
       if (seenCols.has(cName.toLowerCase())) {
@@ -322,6 +339,21 @@ export default function NewTemplatePage() {
         return;
       }
       seenCols.add(cName.toLowerCase());
+
+      if (c.type === "digits") {
+        const len = (c.rule as { length?: number }).length;
+        if (!len || len <= 0) {
+          notify.error(`Kolom '${cName}' harus memiliki jumlah digit lebih dari 0`);
+          return;
+        }
+      }
+      if (c.type === "list") {
+        const vals = (c.rule as { values?: string[] }).values;
+        if (!vals || vals.length === 0) {
+          notify.error(`Kolom '${cName}' harus memiliki minimal 1 pilihan daftar`);
+          return;
+        }
+      }
     }
 
     setIsSubmitting(true);
@@ -583,24 +615,14 @@ export default function NewTemplatePage() {
                   Daftar Kolom ({columns.length})
                 </h2>
                 <p className="text-sm text-zinc-500 mt-0.5">
-                  Tentukan kolom yang harus ada pada berkas yang diunggah.
+                  Tentukan kolom dan klik tombol Aturan untuk menyesuaikan aturan pengisian.
                 </p>
               </div>
 
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() =>
-                  setColumns((prev) => [
-                    ...prev,
-                    {
-                      id: `col_${Date.now()}`,
-                      name: `kolom_${prev.length + 1}`,
-                      required: true,
-                      rule: { type: "text" },
-                    },
-                  ])
-                }
+                onClick={addColumn}
                 className="min-h-[44px] gap-2"
               >
                 <Plus className="w-4 h-4" />
@@ -612,6 +634,8 @@ export default function NewTemplatePage() {
               id="template-baru-dnd"
               sensors={sensors}
               collisionDetection={closestCenter}
+              accessibility={sortableAccessibility}
+              onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
               <SortableContext
@@ -619,24 +643,34 @@ export default function NewTemplatePage() {
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-3">
-                  {columns.map((col, idx) => (
-                    <SortableColumnItem
-                      key={col.id}
-                      col={col}
-                      idx={idx}
-                      onUpdate={(up) =>
-                        setColumns((prev) =>
-                          prev.map((c) => (c.id === col.id ? up : c))
-                        )
-                      }
-                      onRemove={() =>
-                        setColumns((prev) => prev.filter((c) => c.id !== col.id))
-                      }
-                      canRemove={columns.length > 1}
-                    />
-                  ))}
+                  {columns.map((col, idx) => {
+                    const isDup = duplicateNames.has(col.name.trim().toLowerCase());
+                    const isInvalid = !columnNameRegex.test(col.name.trim());
+                    return (
+                      <div key={col.id} id={col.id}>
+                        <SortableColumnRow
+                          col={col}
+                          index={idx}
+                          total={columns.length}
+                          isDuplicate={isDup}
+                          isInvalidName={Boolean(col.name.trim() && isInvalid)}
+                          onUpdate={(patch) => updateColumn(col.id, patch)}
+                          onUpdateRule={(patch) => updateColumnRule(col.id, patch)}
+                          onRemove={() => removeColumn(col.id)}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </SortableContext>
+              <DragOverlay>
+                {activeDragId ? (
+                  (() => {
+                    const activeCol = columns.find((c) => c.id === activeDragId);
+                    return activeCol ? <DragOverlayColumnRow col={activeCol} /> : null;
+                  })()
+                ) : null}
+              </DragOverlay>
             </DndContext>
           </div>
 
