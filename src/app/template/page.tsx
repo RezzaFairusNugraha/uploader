@@ -309,12 +309,22 @@ export default function TemplatePage() {
     }
   };
 
+  const closeDeleteDialog = () => {
+    if (isDeleting) return;
+    setDeleteTarget(null);
+    setIsDeleting(false);
+    setDeleteStep(null);
+    setDeleteError(null);
+    setPreviewError(null);
+    setConfirmNameInput("");
+  };
+
   useEffect(() => {
     if (!deleteTarget) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !isDeleting) {
-        setDeleteTarget(null);
+        closeDeleteDialog();
       }
     };
 
@@ -325,6 +335,7 @@ export default function TemplatePage() {
   const openDeleteDialog = async (tpl: TemplateWithMeta) => {
     setOpenMenuId(null);
     setDeleteTarget(tpl);
+    setIsDeleting(false);
     setConfirmNameInput("");
     setDeleteError(null);
     setDeleteStep(null);
@@ -374,8 +385,6 @@ export default function TemplatePage() {
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setDeleteError(data?.error || "Gagal menghapus template. Coba lagi.");
-        setIsDeleting(false);
-        setDeleteStep(null);
         return;
       }
 
@@ -386,6 +395,7 @@ export default function TemplatePage() {
       const msg =
         err instanceof Error ? err.message : "Gagal menghapus template. Coba lagi.";
       setDeleteError(msg);
+    } finally {
       setIsDeleting(false);
       setDeleteStep(null);
     }
@@ -661,7 +671,7 @@ export default function TemplatePage() {
               {!isDeleting && (
                 <button
                   type="button"
-                  onClick={() => setDeleteTarget(null)}
+                  onClick={closeDeleteDialog}
                   className="text-zinc-400 hover:text-zinc-600 p-1 rounded-lg"
                   aria-label="Tutup"
                 >
@@ -766,7 +776,7 @@ export default function TemplatePage() {
                 type="button"
                 variant="secondary"
                 disabled={isDeleting}
-                onClick={() => setDeleteTarget(null)}
+                onClick={closeDeleteDialog}
               >
                 Batal
               </Button>
